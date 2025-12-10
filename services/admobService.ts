@@ -1,4 +1,3 @@
-
 import { AdMobConfig } from '../config/admob';
 import { AdMobPlugin } from '../types';
 

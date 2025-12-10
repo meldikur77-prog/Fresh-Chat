@@ -1,9 +1,9 @@
-
-import { User, Message, FriendStatus } from '../types';
+import { User, Message, FriendStatus, FriendshipData } from '../types';
 
 // Keys for LocalStorage
 const USERS_KEY = 'fc_users';
 const MESSAGES_KEY = 'fc_messages';
+const TYPING_KEY_PREFIX = 'typing_';
 
 // Helper to get data
 const getStoredUsers = (): User[] => {
@@ -26,11 +26,9 @@ const notifyListeners = () => {
 
 // Listen for changes from OTHER tabs
 window.addEventListener('storage', (e) => {
-  // TS18047 Fix: Explicitly check if e.key is not null before accessing properties
-  if (e.key !== null) {
-    if (e.key === USERS_KEY || e.key === MESSAGES_KEY || e.key.startsWith('rel_') || e.key.startsWith('last_read_')) {
-      notifyListeners();
-    }
+  if (!e.key) return;
+  if (e.key === USERS_KEY || e.key === MESSAGES_KEY || e.key.startsWith('rel_') || e.key.startsWith('last_read_') || e.key.startsWith(TYPING_KEY_PREFIX)) {
+    notifyListeners();
   }
 });
 
@@ -75,20 +73,57 @@ export const LocalDb = {
     notifyListeners();
   },
 
-  // Helper to generate a consistent Chat ID between two users
   getChatId: (user1Id: string, user2Id: string) => {
     return [user1Id, user2Id].sort().join('_');
   },
 
   updateFriendStatus: (myId: string, targetUserId: string, status: FriendStatus) => {
     const key = `rel_${[myId, targetUserId].sort().join('_')}`;
-    localStorage.setItem(key, status);
+    const data: FriendshipData = { status, initiatedBy: status === FriendStatus.PENDING ? myId : undefined };
+    localStorage.setItem(key, JSON.stringify(data));
     notifyListeners();
   },
 
   getFriendStatus: (myId: string, targetUserId: string): FriendStatus => {
     const key = `rel_${[myId, targetUserId].sort().join('_')}`;
-    return (localStorage.getItem(key) as FriendStatus) || FriendStatus.NONE;
+    const raw = localStorage.getItem(key);
+    if (!raw) return FriendStatus.NONE;
+    try {
+      // Handle legacy string format or new JSON object
+      const parsed = JSON.parse(raw);
+      return parsed.status || FriendStatus.NONE;
+    } catch {
+      return raw as FriendStatus;
+    }
+  },
+
+  getAllFriendships: (userId: string): Record<string, FriendshipData> => {
+    const result: Record<string, FriendshipData> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('rel_')) {
+        const raw = localStorage.getItem(key);
+        let val: FriendshipData = { status: FriendStatus.NONE };
+        try {
+            const parsed = JSON.parse(raw || '{}');
+            val = { status: parsed.status, initiatedBy: parsed.initiatedBy };
+        } catch {
+            val = { status: raw as FriendStatus };
+        }
+
+        const idString = key.substring(4);
+        
+        if (idString.startsWith(userId + '_')) {
+            const otherId = idString.substring(userId.length + 1);
+            result[otherId] = val;
+        } 
+        else if (idString.endsWith('_' + userId)) {
+            const otherId = idString.substring(0, idString.length - userId.length - 1);
+            result[otherId] = val;
+        }
+      }
+    }
+    return result;
   },
 
   markAsRead: (chatId: string, userId: string) => {
@@ -101,8 +136,39 @@ export const LocalDb = {
     const key = `last_read_${chatId}_${userId}`;
     const lastRead = parseInt(localStorage.getItem(key) || '0');
     const allMessages = LocalDb.getMessages(chatId);
-    // Count messages NOT sent by me that are newer than my last read time
     return allMessages.filter(m => m.senderId !== userId && m.timestamp > lastRead).length;
+  },
+
+  // Typing
+  setTypingStatus: (chatId: string, userId: string, isTyping: boolean) => {
+    const key = `${TYPING_KEY_PREFIX}${chatId}`;
+    const current = JSON.parse(localStorage.getItem(key) || '{}');
+    if (isTyping) {
+      current[userId] = true;
+    } else {
+      delete current[userId];
+    }
+    localStorage.setItem(key, JSON.stringify(current));
+    notifyListeners();
+  },
+
+  getTypingUsers: (chatId: string): string[] => {
+    const key = `${TYPING_KEY_PREFIX}${chatId}`;
+    const current = JSON.parse(localStorage.getItem(key) || '{}');
+    return Object.keys(current);
+  },
+
+  blockUser: (myId: string, targetId: string) => {
+    const users = getStoredUsers();
+    const me = users.find(u => u.id === myId);
+    if (me) {
+      if (!me.blockedUsers) me.blockedUsers = [];
+      if (!me.blockedUsers.includes(targetId)) {
+        me.blockedUsers.push(targetId);
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        notifyListeners();
+      }
+    }
   },
   
   clearData: () => {

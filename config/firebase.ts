@@ -1,7 +1,10 @@
-
 // --- FIREBASE CONFIGURATION ---
 // To make this app work with REAL users across different devices,
 // you must create a Firebase Project and paste your keys here.
+
+// IMPORTANT: Since you are deployed at https://fresh-chat.pages.dev/,
+// you MUST add "fresh-chat.pages.dev" to your Authorized Domains in Firebase.
+// Go to: Firebase Console -> Authentication -> Settings -> Authorized Domains -> Add Domain
 
 export const firebaseConfig = {
   apiKey: "AIzaSyAXO2OwZShGH7uhaV1ZPXIH8PbGPCSxVz8",

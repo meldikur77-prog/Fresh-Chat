@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { X, ExternalLink, ShieldCheck } from 'lucide-react';
 import { AdMobService } from '../services/admobService';

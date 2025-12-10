@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { AdMobService } from '../services/admobService';
 
@@ -46,7 +45,9 @@ export const AdBanner: React.FC<AdBannerProps> = ({ isPremium, adUnitId }) => {
           <span className="bg-[#4285F4] text-white text-[10px] font-bold px-1 rounded-sm">Ad</span>
           <span className="text-xs font-bold text-slate-500">Google AdMob</span>
         </div>
-        <p className="text-[9px] text-slate-400 font-mono mt-0.5">Test Mode: Web</p>
+        <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+          Real Keys Loaded • Native App Required
+        </p>
       </div>
     </div>
   );

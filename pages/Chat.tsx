@@ -1,7 +1,7 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, MoreVertical, MessageCircle, MapPin, Send } from 'lucide-react';
 import { User, Message, AppScreen, FriendStatus, Coordinates } from '../types';
+import { DataService } from '../services/database';
 
 interface ChatProps {
   myProfile: User;
@@ -16,8 +16,12 @@ export const Chat: React.FC<ChatProps> = ({
   myProfile, chatUser, messages, onBack, onSendMessage, onShareLocation 
 }) => {
   const [inputText, setInputText] = useState('');
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<any>(null);
+
+  const chatId = DataService.getChatId(myProfile.id, chatUser.id);
 
   // Auto-scroll on mount
   useEffect(() => {
@@ -25,6 +29,31 @@ export const Chat: React.FC<ChatProps> = ({
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
     }, 50);
   }, []);
+
+  // Subscribe to Typing Status
+  useEffect(() => {
+    const unsub = DataService.subscribeToTyping(chatId, (usersTyping) => {
+       const othersTyping = usersTyping.filter(uid => uid !== myProfile.id);
+       setIsOtherTyping(othersTyping.length > 0);
+    });
+    return () => unsub && unsub();
+  }, [chatId, myProfile.id]);
+
+  // Handle Input Change (Emit Typing)
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    
+    // Set Typing True
+    DataService.setTypingStatus(chatId, myProfile.id, true);
+    
+    // Clear previous timeout
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    // Set timeout to false
+    typingTimeoutRef.current = setTimeout(() => {
+       DataService.setTypingStatus(chatId, myProfile.id, false);
+    }, 2000);
+  };
 
   // Smart Scroll
   useEffect(() => {
@@ -37,15 +66,16 @@ export const Chat: React.FC<ChatProps> = ({
     const lastMsg = messages[messages.length - 1];
     const isMine = lastMsg?.senderId === myProfile.id;
 
-    if (isMine || isNearBottom) {
+    if (isMine || isNearBottom || isOtherTyping) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, myProfile.id]);
+  }, [messages, myProfile.id, isOtherTyping]);
 
   const handleSend = () => {
     if (inputText.trim()) {
       onSendMessage('text', inputText);
       setInputText('');
+      DataService.setTypingStatus(chatId, myProfile.id, false);
     }
   };
 
@@ -115,6 +145,18 @@ export const Chat: React.FC<ChatProps> = ({
              </div>
            );
          })}
+         
+         {/* Typing Indicator */}
+         {isOtherTyping && (
+           <div className="flex justify-start">
+              <div className="bg-slate-100 px-4 py-3 rounded-2xl rounded-tl-none flex gap-1">
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-75"></span>
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-150"></span>
+              </div>
+           </div>
+         )}
+
          <div ref={messagesEndRef} />
       </div>
 
@@ -129,7 +171,7 @@ export const Chat: React.FC<ChatProps> = ({
           <input
             type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={handleInputChange}
             placeholder="Type a message..."
             className="w-full bg-slate-50 border-none rounded-full py-3 px-5 text-sm font-medium focus:ring-2 focus:ring-emerald-100 outline-none placeholder:text-slate-400"
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}

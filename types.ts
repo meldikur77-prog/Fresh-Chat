@@ -1,4 +1,3 @@
-
 export interface Coordinates {
   latitude: number;
   longitude: number;
@@ -22,9 +21,25 @@ export interface User {
   location: Coordinates;
   distance?: number; // Calculated distance in km
   isPremium?: boolean;
+  
   friendStatus: FriendStatus;
+  friendRequestInitiator?: string; // ID of user who sent request
+
   unreadCount?: number;
   authMethod?: 'google' | 'guest';
+  
+  // Engagement Stats
+  hearts?: number;
+  views?: number;
+  lastActive?: number; // Timestamp
+  
+  // Safety
+  blockedUsers?: string[];
+}
+
+export interface FriendshipData {
+  status: FriendStatus;
+  initiatedBy?: string;
 }
 
 export interface Message {

@@ -1,7 +1,8 @@
-
 import React, { useState, useRef } from 'react';
-import { ChevronLeft, Camera, LogOut, X, Plus, Trash2, ImageIcon } from 'lucide-react';
+import { ChevronLeft, Camera, LogOut, X, Plus, Trash2, ImageIcon, AlertTriangle, FileText, Lock, HelpCircle, RefreshCw } from 'lucide-react';
 import { User } from '../types';
+import { compressImage } from '../utils';
+import { DataService } from '../services/database';
 
 interface ProfileEditProps {
   user: User;
@@ -13,6 +14,8 @@ interface ProfileEditProps {
 export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel, onLogout }) => {
   const [profile, setProfile] = useState<User>(user);
   const [newInterest, setNewInterest] = useState('');
+  const [loadingImage, setLoadingImage] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addInterest = () => {
@@ -26,14 +29,19 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
     setProfile({ ...profile, interests: profile.interests.filter(i => i !== interest) });
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfile({ ...profile, album: [...profile.album, reader.result as string] });
-      };
-      reader.readAsDataURL(file);
+      setLoadingImage(true);
+      try {
+        const compressedBase64 = await compressImage(file);
+        setProfile(prev => ({ ...prev, album: [...prev.album, compressedBase64] }));
+      } catch (err) {
+        console.error("Compression Failed", err);
+        alert("Failed to process image. Try a smaller one.");
+      } finally {
+        setLoadingImage(false);
+      }
     }
   };
 
@@ -41,8 +49,48 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
     setProfile({ ...profile, album: profile.album.filter((_, i) => i !== index) });
   };
 
+  const handleDeleteAccount = async () => {
+    try {
+      await DataService.deleteAccount(profile.id);
+      onLogout();
+    } catch (error) {
+      alert("Failed to delete account. You may need to re-login recently.");
+    }
+  };
+
+  const handleRestorePurchases = () => {
+    alert("No purchases to restore.");
+  };
+
   return (
-    <div className="bg-slate-50 min-h-screen flex flex-col">
+    <div className="bg-slate-50 min-h-screen flex flex-col relative">
+       {/* Delete Confirmation Modal */}
+       {showDeleteModal && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 animate-in fade-in duration-200">
+           <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col items-center text-center">
+             <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+               <AlertTriangle className="text-red-500" size={24} />
+             </div>
+             <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Account?</h3>
+             <p className="text-sm text-slate-500 mb-6">
+               This action is permanent. All your chats, matches, and photos will be erased immediately.
+             </p>
+             <button 
+               onClick={handleDeleteAccount}
+               className="w-full py-3 bg-red-500 text-white font-bold rounded-xl mb-3 hover:bg-red-600 transition"
+             >
+               Yes, Delete Everything
+             </button>
+             <button 
+               onClick={() => setShowDeleteModal(false)}
+               className="w-full py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition"
+             >
+               Cancel
+             </button>
+           </div>
+         </div>
+       )}
+
        <div className="bg-white p-4 sticky top-0 z-10 border-b border-slate-100 flex items-center justify-between pt-safe-top">
          <button onClick={onCancel} className="flex items-center gap-1 text-slate-500 font-bold">
            <ChevronLeft size={20} /> Back
@@ -113,7 +161,7 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
              <label className="text-xs font-bold text-slate-400 uppercase ml-1 mb-2 block flex justify-between">
                <span>My Album</span>
                <span onClick={() => fileInputRef.current?.click()} className="text-emerald-500 cursor-pointer flex items-center gap-1">
-                 <Plus size={12} /> Add Photo
+                 <Plus size={12} /> {loadingImage ? 'Compressing...' : 'Add Photo'}
                </span>
              </label>
              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
@@ -126,13 +174,52 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
                    </button>
                  </div>
                ))}
-               {profile.album.length === 0 && (
+               {profile.album.length === 0 && !loadingImage && (
                  <div onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:bg-white hover:border-emerald-300 transition">
                     <ImageIcon size={20} />
                     <span className="text-[10px] font-bold mt-1">Upload</span>
                  </div>
                )}
+               {loadingImage && (
+                 <div className="aspect-square rounded-xl bg-slate-100 flex items-center justify-center animate-pulse">
+                   <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                 </div>
+               )}
              </div>
+           </div>
+
+           {/* Legal & Compliance (Required for App Store) */}
+           <div className="mt-8 pt-6 border-t border-slate-200 space-y-3">
+             <a href="https://fresh-chat.pages.dev/privacy" target="_blank" className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold flex items-center justify-between px-4 hover:bg-slate-200 transition">
+               <span className="flex items-center gap-2"><Lock size={16} /> Privacy Policy</span>
+               <ChevronLeft className="rotate-180" size={16} />
+             </a>
+             <a href="https://fresh-chat.pages.dev/terms" target="_blank" className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold flex items-center justify-between px-4 hover:bg-slate-200 transition">
+               <span className="flex items-center gap-2"><FileText size={16} /> Terms of Service</span>
+               <ChevronLeft className="rotate-180" size={16} />
+             </a>
+             
+             {/* RESTORE PURCHASES (REQUIRED FOR APPLE) */}
+             <button onClick={handleRestorePurchases} className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold flex items-center justify-between px-4 hover:bg-slate-200 transition">
+               <span className="flex items-center gap-2"><RefreshCw size={16} /> Restore Purchases</span>
+               <ChevronLeft className="rotate-180" size={16} />
+             </button>
+
+             {/* CONTACT SUPPORT (REQUIRED) */}
+             <a href="mailto:support@freshchat.com" className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold flex items-center justify-between px-4 hover:bg-slate-200 transition">
+               <span className="flex items-center gap-2"><HelpCircle size={16} /> Contact Support</span>
+               <ChevronLeft className="rotate-180" size={16} />
+             </a>
+           </div>
+
+           {/* Danger Zone */}
+           <div className="mt-4">
+             <button onClick={() => setShowDeleteModal(true)} className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition">
+               <AlertTriangle size={18} /> Delete Account
+             </button>
+             <p className="text-center text-[10px] text-slate-400 mt-2">
+               Permanently delete your account and all data.
+             </p>
            </div>
          </div>
        </div>
