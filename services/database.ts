@@ -11,7 +11,6 @@ import { firebaseConfig, isFirebaseConfigured } from '../config/firebase';
 import { LocalDb } from './localDb';
 
 // --- FIREBASE INITIALIZATION ---
-// Explicitly type as any or the correct type to avoid noImplicitAny build errors
 let db: Firestore | any;
 let auth: Auth | any;
 let messaging: Messaging | any;
@@ -22,7 +21,6 @@ if (isFirebaseConfigured()) {
   auth = getAuth(app);
   messaging = getMessaging(app);
   
-  // Auto sign-in anonymously to allow DB access (only if not already signed in)
   auth.onAuthStateChanged((user: any) => {
     if (!user) {
       signInAnonymously(auth).catch(console.error);
@@ -30,22 +28,17 @@ if (isFirebaseConfigured()) {
   });
 }
 
-// --- HYBRID SERVICE ---
-
 export const DataService = {
   
   requestNotificationPermission: async (userId: string) => {
     if (!isFirebaseConfigured()) return;
-    
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
         const token = await getToken(messaging, { 
-          vapidKey: 'YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE' // You need to generate this in Firebase Console -> Cloud Messaging
+          vapidKey: 'YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE' 
         });
-        
         if (token) {
-          // Save token to user profile
           await setDoc(doc(db, 'users', userId), { fcmToken: token }, { merge: true });
         }
       }
@@ -57,10 +50,7 @@ export const DataService = {
   deleteAccount: async (userId: string) => {
     if (isFirebaseConfigured()) {
        try {
-         // 1. Delete Firestore Data
          await deleteDoc(doc(db, 'users', userId));
-         
-         // 2. Delete Auth Account
          if (auth.currentUser) {
            await deleteUser(auth.currentUser);
          }
@@ -69,7 +59,6 @@ export const DataService = {
          throw error;
        }
     } else {
-      // Local Simulation
       const users = LocalDb.getUsers().filter(u => u.id !== userId);
       localStorage.setItem('fc_users', JSON.stringify(users));
     }
@@ -81,17 +70,13 @@ export const DataService = {
       try {
         const result = await signInWithPopup(auth, provider);
         const fbUser = result.user;
-        
-        // Check if user exists in DB to preserve data
         const userDocRef = doc(db, 'users', fbUser.uid);
         const userDoc = await getDoc(userDocRef);
         
         if (userDoc.exists()) {
-          // Return existing user data
           return { id: userDoc.id, ...userDoc.data() } as User;
         }
         
-        // Return new user based on Google Profile
         return {
           id: fbUser.uid,
           name: fbUser.displayName || 'Google User',
@@ -111,11 +96,9 @@ export const DataService = {
           blockedUsers: []
         };
       } catch (error) {
-        // Error handling is done in the UI component
         throw error;
       }
     } else {
-      // Simulation Fallback
       return new Promise((resolve) => {
         setTimeout(() => {
            const userId = `google_${Date.now()}`;
@@ -144,30 +127,26 @@ export const DataService = {
 
   subscribeToUsers: (currentUserId: string, callback: (users: User[]) => void) => {
     if (isFirebaseConfigured()) {
-      // Real Firebase Listener
       const q = query(collection(db, 'users'));
       return onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         callback(users);
       });
     } else {
-      // Local Storage Listener
       const update = () => callback(LocalDb.getUsers());
       const unsub = LocalDb.subscribe(update);
-      update(); // Initial call
+      update();
       return unsub;
     }
   },
 
   subscribeToRelationships: (currentUserId: string, callback: (relationships: Record<string, FriendshipData>) => void) => {
     if (isFirebaseConfigured()) {
-       // In Firestore, we listen to the relationships collection where currentUserId is in 'users' array
        const q = query(collection(db, 'relationships'), where('users', 'array-contains', currentUserId));
        return onSnapshot(q, (snapshot) => {
           const rels: Record<string, FriendshipData> = {};
           snapshot.docs.forEach(doc => {
              const data = doc.data();
-             // Find the other user ID
              const otherId = data.users.find((uid: string) => uid !== currentUserId);
              if (otherId) {
                 rels[otherId] = {
@@ -204,36 +183,68 @@ export const DataService = {
     }
   },
 
+  // --- UNREAD COUNT LOGIC ---
+  subscribeToUnreadCounts: (myId: string, callback: (counts: Record<string, number>) => void) => {
+    if (isFirebaseConfigured()) {
+      // In Firestore, we listen to the 'chats' collection documents directly
+      // Note: In a production app with millions of chats, you might index this differently.
+      // But for this scale, listening to chats where I am a participant is okay if structured right.
+      // Since we don't have a 'participants' array on the chat doc in this simple schema, 
+      // we will query a special 'active_chats' collection or just rely on the client knowing chatIds.
+      
+      // ALTERNATIVE: Since we generate chatId deterministically (getChatId), and we have a list of Nearby Users,
+      // we can't listen to ALL of them. 
+      // Instead, we will assume the `chats` collection has documents named `u1_u2`.
+      // We will listen to all changes in `chats` collection.
+      // NOTE: This downloads ALL chats metadata. For a small app/prototype, this is acceptable for real-time responsiveness.
+      // For a massive app, you would only query chats where `participants` array-contains myId.
+      
+      const q = query(collection(db, 'chats')); // Ideally: where('participants', 'array-contains', myId)
+      return onSnapshot(q, (snapshot) => {
+        const counts: Record<string, number> = {};
+        snapshot.docs.forEach(doc => {
+          const data = doc.data();
+          // The Chat ID is "userA_userB".
+          // We check if it involves me.
+          if (doc.id.includes(myId)) {
+            // Extract other user ID
+            const parts = doc.id.split('_');
+            const otherId = parts[0] === myId ? parts[1] : parts[0];
+            
+            // Get unread count for ME
+            const count = data[`unread_${myId}`] || 0;
+            if (count > 0) {
+              counts[otherId] = count;
+            }
+          }
+        });
+        callback(counts);
+      });
+    } else {
+      // LocalDB fallback is tricky with this pattern, returning empty for now as LocalDb handles it via getUnreadCountSync
+      return () => {};
+    }
+  },
+
   upsertUser: async (user: User) => {
-    // Clean data (Nuclear Option)
-    // Firestore crashes if fields are undefined. JSON.stringify removes undefined fields.
     const cleanUser = JSON.parse(JSON.stringify(user));
 
     if (isFirebaseConfigured()) {
-      // Ensure specific fields are present (safety defaults)
       if (cleanUser.hearts === undefined) cleanUser.hearts = 0;
       if (cleanUser.views === undefined) cleanUser.views = 0;
       if (cleanUser.blockedUsers === undefined) cleanUser.blockedUsers = [];
-      
       await setDoc(doc(db, 'users', user.id), cleanUser, { merge: true });
     } else {
       LocalDb.upsertUser(cleanUser);
     }
   },
 
-  // --- SAFETY FEATURES ---
-
   blockUser: async (myId: string, targetId: string) => {
     if (isFirebaseConfigured()) {
       const ref = doc(db, 'users', myId);
       await setDoc(ref, { blockedUsers: arrayUnion(targetId) }, { merge: true });
-      
-      // Also block reports collection logic if needed
       await addDoc(collection(db, 'reports'), {
-        reporterId: myId,
-        targetId: targetId,
-        reason: 'Blocked by user',
-        timestamp: Date.now()
+        reporterId: myId, targetId: targetId, reason: 'Blocked by user', timestamp: Date.now()
       });
     } else {
       LocalDb.blockUser(myId, targetId);
@@ -243,23 +254,15 @@ export const DataService = {
   reportUser: async (myId: string, targetId: string, reason: string) => {
     if (isFirebaseConfigured()) {
       await addDoc(collection(db, 'reports'), {
-        reporterId: myId,
-        targetId: targetId,
-        reason: reason,
-        timestamp: Date.now()
+        reporterId: myId, targetId: targetId, reason: reason, timestamp: Date.now()
       });
     }
-    // No local implementation for reporting
   },
-
-  // --- TYPING INDICATORS ---
 
   setTypingStatus: async (chatId: string, userId: string, isTyping: boolean) => {
      if (isFirebaseConfigured()) {
        const ref = doc(db, 'chats', chatId);
-       await setDoc(ref, { 
-         [`typing.${userId}`]: isTyping 
-       }, { merge: true });
+       await setDoc(ref, { [`typing.${userId}`]: isTyping }, { merge: true });
      } else {
        LocalDb.setTypingStatus(chatId, userId, isTyping);
      }
@@ -284,26 +287,17 @@ export const DataService = {
     }
   },
 
-  // --- ENGAGEMENT FEATURES ---
-
   updateLastActive: async (userId: string) => {
     if (!userId) return;
     const now = Date.now();
     if (isFirebaseConfigured()) {
        try {
-         // FIX: Use setDoc with merge instead of updateDoc to prevent crashes if doc doesn't exist yet
          await setDoc(doc(db, 'users', userId), { lastActive: now }, { merge: true });
-       } catch (e) {
-         console.warn("Failed to update active status", e);
-       }
+       } catch (e) { console.warn("Failed to update active status", e); }
     } else {
-       // Local DB logic: read, update, write
        const users = LocalDb.getUsers();
        const u = users.find(u => u.id === userId);
-       if (u) {
-         u.lastActive = now;
-         LocalDb.upsertUser(u);
-       }
+       if (u) { u.lastActive = now; LocalDb.upsertUser(u); }
     }
   },
 
@@ -314,10 +308,7 @@ export const DataService = {
     } else {
       const users = LocalDb.getUsers();
       const u = users.find(u => u.id === targetUserId);
-      if (u) {
-        u.views = (u.views || 0) + 1;
-        LocalDb.upsertUser(u);
-      }
+      if (u) { u.views = (u.views || 0) + 1; LocalDb.upsertUser(u); }
     }
   },
 
@@ -328,24 +319,26 @@ export const DataService = {
     } else {
       const users = LocalDb.getUsers();
       const u = users.find(u => u.id === targetUserId);
-      if (u) {
-        u.hearts = (u.hearts || 0) + 1;
-        LocalDb.upsertUser(u);
-      }
+      if (u) { u.hearts = (u.hearts || 0) + 1; LocalDb.upsertUser(u); }
     }
   },
 
-  // --- MESSAGING ---
-
   sendMessage: async (chatId: string, message: Message) => {
-    // Sanitize message to remove undefined fields
     const payload = JSON.parse(JSON.stringify(message));
     
     if (isFirebaseConfigured()) {
       try {
-        // Create chat doc if not exists
-        await setDoc(doc(db, 'chats', chatId), { lastUpdated: Date.now() }, { merge: true });
-        // Add message
+        const parts = chatId.split('_');
+        const receiverId = parts[0] === message.senderId ? parts[1] : parts[0];
+
+        // 1. Update Chat Meta (Last Update & Increment Unread for Receiver)
+        const chatRef = doc(db, 'chats', chatId);
+        await setDoc(chatRef, { 
+          lastUpdated: Date.now(),
+          [`unread_${receiverId}`]: increment(1) // Atomic increment
+        }, { merge: true });
+
+        // 2. Add Message
         await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
       } catch (e) {
         console.error("Error sending message:", e);
@@ -357,7 +350,6 @@ export const DataService = {
 
   updateFriendStatus: async (myId: string, targetUserId: string, status: FriendStatus) => {
     if (isFirebaseConfigured()) {
-      // Store relationships in a 'relationships' collection
       const relId = [myId, targetUserId].sort().join('_');
       await setDoc(doc(db, 'relationships', relId), {
         status: status,
@@ -381,8 +373,10 @@ export const DataService = {
   markAsRead: async (chatId: string, userId: string) => {
     if (isFirebaseConfigured()) {
        try {
+         // Reset unread count for this user to 0
          await setDoc(doc(db, 'chats', chatId), { 
-           [`lastRead_${userId}`]: Date.now() 
+           [`lastRead_${userId}`]: Date.now(),
+           [`unread_${userId}`]: 0 
          }, { merge: true });
        } catch (e) {
          console.error("Error marking read:", e);
@@ -393,6 +387,7 @@ export const DataService = {
   },
   
   getUnreadCountSync: (chatId: string, userId: string): number => {
+    // For local DB only. Firebase uses subscription.
     if (isFirebaseConfigured()) return 0;
     return LocalDb.getUnreadCount(chatId, userId);
   }

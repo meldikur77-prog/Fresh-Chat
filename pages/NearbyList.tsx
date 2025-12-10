@@ -23,7 +23,6 @@ interface NearbyListProps {
 
 const ACTIVE_THRESHOLD = 15 * 60 * 1000; // 15 Minutes
 
-// Skeleton Component
 const SkeletonUser = () => (
   <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 animate-pulse">
     <div className="w-16 h-16 rounded-2xl bg-slate-200 shrink-0" />
@@ -48,12 +47,10 @@ export const NearbyList: React.FC<NearbyListProps> = ({
 
   let filtered = nearbyUsers;
   
-  // Filter by Gender
   if (genderFilter !== 'All') {
     filtered = filtered.filter(u => u.gender === genderFilter);
   }
   
-  // Filter by Tab (Friends vs Nearby)
   if (listTab === 'FRIENDS') {
     filtered = filtered.filter(u => u.friendStatus === FriendStatus.FRIEND);
   }
@@ -65,7 +62,6 @@ export const NearbyList: React.FC<NearbyListProps> = ({
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative">
-      {/* Header */}
       <div className="pt-safe-top pb-2 px-6 bg-white sticky top-0 z-20 shadow-sm">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentScreen(AppScreen.PROFILE_EDIT)}>
@@ -94,7 +90,6 @@ export const NearbyList: React.FC<NearbyListProps> = ({
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex p-1 bg-slate-100 rounded-xl mt-2 mb-2">
           <button 
             onClick={() => { setListTab('NEARBY'); trackAction(); }}
@@ -111,7 +106,6 @@ export const NearbyList: React.FC<NearbyListProps> = ({
         </div>
       </div>
 
-      {/* Filter Modal */}
       {showFilterModal && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setShowFilterModal(false)}></div>
@@ -131,9 +125,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
         </>
       )}
 
-      {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {/* SKELETON LOADING STATE (If no users yet and looks empty) */}
         {nearbyUsers.length === 0 && !filtered.length && (
            <>
              <SkeletonUser />
@@ -172,7 +164,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                       {user.distance} km
                     </span>
                     {user.unreadCount && user.unreadCount > 0 ? (
-                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-sm">
+                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-md animate-pulse">
                         {user.unreadCount}
                       </span>
                     ) : null}
@@ -180,7 +172,6 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                 </div>
                 <p className="text-xs text-slate-500 truncate mb-2">{user.bio || 'No bio available'}</p>
                 
-                {/* Interest Tags + Heart Stat */}
                 <div className="flex justify-between items-center">
                   <div className="flex gap-1 flex-wrap">
                      {user.interests.slice(0, 2).map(tag => (
@@ -201,14 +192,11 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                      <MessageCircle size={20} />
                    </button>
                  ) : user.friendStatus === FriendStatus.PENDING ? (
-                    // LOGIC CHANGE: Check friendRequestInitiator
                     user.friendRequestInitiator === myProfile.id ? (
-                      // I sent it -> Disabled
                       <button disabled className="w-20 h-9 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center cursor-default gap-1 px-3">
                         <Clock size={14} /> <span className="text-[10px] font-bold">Sent</span>
                       </button>
                     ) : (
-                      // They sent it -> Accept
                       <button onClick={() => handleConfirmFriend(user)} className="w-20 h-9 bg-emerald-500 text-white shadow-lg shadow-emerald-200 rounded-full flex items-center justify-center animate-pulse gap-1 px-3">
                         <Check size={14} /> <span className="text-[10px] font-bold">Accept</span>
                       </button>
@@ -222,7 +210,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
             </div>
           ))
         )}
-        <div className="h-16" /> {/* Spacer for Ads */}
+        <div className="h-16" />
       </div>
 
       <AdBanner isPremium={isPremium} adUnitId={AdMobConfig.BANNER_ID} />

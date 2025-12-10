@@ -11,6 +11,7 @@ import { NearbyList } from './pages/NearbyList';
 import { Chat } from './pages/Chat';
 import { ProfileEdit } from './pages/ProfileEdit';
 import { UserDetail } from './pages/UserDetail';
+import { isFirebaseConfigured } from './config/firebase';
 
 // CONSTANTS
 const AD_ACTION_THRESHOLD = 15;
@@ -57,11 +58,8 @@ const ReportModal: React.FC<{
 export default function App() {
   // --- STATE ---
   const [currentScreen, setCurrentScreen] = useState<AppScreen>(AppScreen.PROFILE_SETUP);
-  
-  // Offline State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // My Profile State
   const [myProfile, setMyProfile] = useState<User>({ 
     id: '', 
     name: '', 
@@ -82,6 +80,7 @@ export default function App() {
 
   const [rawUsers, setRawUsers] = useState<User[]>([]);
   const [friendships, setFriendships] = useState<Record<string, FriendshipData>>({});
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [nearbyUsers, setNearbyUsers] = useState<User[]>([]);
   
   const [chatUser, setChatUser] = useState<User | null>(null);
@@ -95,34 +94,28 @@ export default function App() {
 
   const [actionCount, setActionCount] = useState(0);
   const [showInterstitial, setShowInterstitial] = useState(false);
-  
-  // Reporting State
   const [reportModalUser, setReportModalUser] = useState<User | null>(null);
   
   // Subscription Refs
   const usersUnsubscribe = useRef<(() => void) | null>(null);
   const friendsUnsubscribe = useRef<(() => void) | null>(null);
   const chatUnsubscribe = useRef<(() => void) | null>(null);
+  const unreadUnsubscribe = useRef<(() => void) | null>(null);
 
   // --- EFFECTS ---
 
-  // 1. Initialize AdMob (Native) & Online Listeners
   useEffect(() => {
     AdMobService.initialize();
-
-    // Offline Handlers
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // 2. Initialize User
   useEffect(() => {
     const savedId = sessionStorage.getItem('fresh_chat_my_id');
     if (savedId) {
@@ -132,49 +125,56 @@ export default function App() {
     }
   }, []);
 
-  // 3. Subscribe to Users & Init Notifications
   useEffect(() => {
     if (!myProfile.id) return;
 
-    // Request Push Notifications
     DataService.requestNotificationPermission(myProfile.id);
 
-    // Users Listener
+    // 1. Users Listener
     usersUnsubscribe.current = DataService.subscribeToUsers(myProfile.id, (users) => {
-      // Update my profile if it changed on server
       const meOnServer = users.find(u => u.id === myProfile.id);
       if (meOnServer) {
         setMyProfile(prev => ({...prev, ...meOnServer, blockedUsers: meOnServer.blockedUsers || []}));
       }
-      setRawUsers(users);
+      // FILTER LOGIC: Filter out users inactive for more than 7 days to clean up "Zombie" guest accounts
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const activeUsers = users.filter(u => (u.lastActive || 0) > sevenDaysAgo);
+      setRawUsers(activeUsers);
     });
 
-    // Relationships Listener
+    // 2. Relationships Listener
     friendsUnsubscribe.current = DataService.subscribeToRelationships(myProfile.id, (rels) => {
       setFriendships(rels);
+    });
+
+    // 3. Unread Counts Listener
+    unreadUnsubscribe.current = DataService.subscribeToUnreadCounts(myProfile.id, (counts) => {
+      setUnreadCounts(counts);
     });
 
     return () => {
       if (usersUnsubscribe.current) usersUnsubscribe.current();
       if (friendsUnsubscribe.current) friendsUnsubscribe.current();
+      if (unreadUnsubscribe.current) unreadUnsubscribe.current();
     };
   }, [myProfile.id]);
 
-  // 4. Process Users (Merge with Friendships + Sort by Active/Distance + FILTER BLOCKED)
+  // Merge Data
   useEffect(() => {
     if (!myProfile.id) return;
 
     const currentId = myProfile.id;
     const blockedList = myProfile.blockedUsers || [];
     
-    // Filter out Me and Blocked Users
     const others = rawUsers.filter(u => u.id !== currentId && !blockedList.includes(u.id));
-    
     const now = Date.now();
 
     const processedUsers = others.map(u => {
-      const chatId = DataService.getChatId(currentId, u.id);
       const relationship = friendships[u.id] || { status: FriendStatus.NONE };
+      // Use the subscribed unread counts for Firebase, or sync getter for LocalDB fallback
+      const unread = isFirebaseConfigured() 
+         ? (unreadCounts[u.id] || 0) 
+         : DataService.getUnreadCountSync(DataService.getChatId(currentId, u.id), currentId);
       
       return {
         ...u,
@@ -184,25 +184,19 @@ export default function App() {
         distance: calculateDistance(myProfile.location, u.location),
         friendStatus: relationship.status,
         friendRequestInitiator: relationship.initiatedBy,
-        unreadCount: DataService.getUnreadCountSync(chatId, currentId)
+        unreadCount: unread
       };
     }).sort((a, b) => {
-      // Primary Sort: Active Status
       const aActive = (a.lastActive || 0) > (now - ACTIVE_THRESHOLD_MS);
       const bActive = (b.lastActive || 0) > (now - ACTIVE_THRESHOLD_MS);
-      
       if (aActive && !bActive) return -1;
       if (!aActive && bActive) return 1;
-
-      // Secondary Sort: Distance
       return (a.distance || 0) - (b.distance || 0);
     });
 
     setNearbyUsers(processedUsers);
-  }, [rawUsers, friendships, myProfile.id, myProfile.location, myProfile.blockedUsers]);
+  }, [rawUsers, friendships, unreadCounts, myProfile.id, myProfile.location, myProfile.blockedUsers]);
 
-
-  // 5. Subscribe to Chat Messages
   useEffect(() => {
     if (chatUser && myProfile.id) {
       const chatId = DataService.getChatId(myProfile.id, chatUser.id);
@@ -216,10 +210,7 @@ export default function App() {
         }
       });
     }
-
-    return () => {
-      if (chatUnsubscribe.current) chatUnsubscribe.current();
-    };
+    return () => { if (chatUnsubscribe.current) chatUnsubscribe.current(); };
   }, [chatUser?.id, myProfile.id, currentScreen]);
 
   useEffect(() => {
@@ -232,10 +223,7 @@ export default function App() {
   // --- ACTIONS ---
 
   const trackAction = () => {
-    if (myProfile.id) {
-      DataService.updateLastActive(myProfile.id);
-    }
-
+    if (myProfile.id) DataService.updateLastActive(myProfile.id);
     if (isPremium) return;
     setActionCount(prev => {
       const next = prev + 1;
@@ -249,7 +237,6 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: User) => {
-    // Preserve existing stats if they exist in the incoming user object
     const newUser: User = { 
       ...user, 
       hearts: user.hearts ?? 0, 
@@ -257,7 +244,6 @@ export default function App() {
       lastActive: Date.now(),
       blockedUsers: user.blockedUsers ?? []
     };
-    
     DataService.upsertUser(newUser);
     sessionStorage.setItem('fresh_chat_my_id', newUser.id);
     setMyProfile(newUser);
@@ -320,9 +306,7 @@ export default function App() {
     }
   };
 
-  const handleReportUserClick = (targetUser: User) => {
-    setReportModalUser(targetUser);
-  };
+  const handleReportUserClick = (targetUser: User) => setReportModalUser(targetUser);
 
   const submitReport = (reason: string) => {
     if (reportModalUser) {
@@ -334,7 +318,6 @@ export default function App() {
 
   const sendMessage = (type: 'text' | 'location' = 'text', content?: string | Coordinates) => {
     if (!chatUser || !myProfile.id) return;
-    
     trackAction();
 
     const newMessage: Message = {
@@ -345,7 +328,6 @@ export default function App() {
       location: type === 'location' ? (content as Coordinates) : undefined,
       timestamp: Date.now()
     };
-
     const chatId = DataService.getChatId(myProfile.id, chatUser.id);
     DataService.sendMessage(chatId, newMessage);
   };
@@ -366,11 +348,8 @@ export default function App() {
 
   const togglePremium = () => {
     setIsPremium(!isPremium);
-    if (!isPremium) {
-      AdMobService.hideBanner();
-    } else {
-      AdMobService.showBanner();
-    }
+    if (!isPremium) AdMobService.hideBanner();
+    else AdMobService.showBanner();
   };
 
   const saveProfileChanges = (updatedUser: User) => {
@@ -383,73 +362,39 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('fresh_chat_my_id');
     setMyProfile({ 
-      id: '', 
-      name: '', 
-      gender: 'Male',
-      age: 25,
-      bio: '',
+      id: '', name: '', gender: 'Male', age: 25, bio: '',
       photoUrl: 'https://picsum.photos/seed/setup/200/200',
-      interests: [],
-      album: [],
-      location: { latitude: 0, longitude: 0 },
-      friendStatus: FriendStatus.NONE,
-      authMethod: 'guest',
-      blockedUsers: []
+      interests: [], album: [], location: { latitude: 0, longitude: 0 },
+      friendStatus: FriendStatus.NONE, authMethod: 'guest', blockedUsers: []
     });
     setChatUser(null);
     setCurrentScreen(AppScreen.PROFILE_SETUP);
   };
 
-  // Safe Derived State
-  const activeSelectedUser = selectedUser 
-      ? nearbyUsers.find(u => u.id === selectedUser.id) || selectedUser 
-      : null;
+  const activeSelectedUser = selectedUser ? nearbyUsers.find(u => u.id === selectedUser.id) || selectedUser : null;
+  const activeChatUser = chatUser ? nearbyUsers.find(u => u.id === chatUser.id) || chatUser : null;
 
-  const activeChatUser = chatUser
-      ? nearbyUsers.find(u => u.id === chatUser.id) || chatUser
-      : null;
-
-  // --- RENDER ---
-  
   return (
     <>
-      {/* OFFLINE BANNER */}
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 bg-red-500 text-white text-xs font-bold text-center py-1 z-[100] flex items-center justify-center gap-2">
            <WifiOff size={12} /> You are currently offline. Reconnecting...
         </div>
       )}
-
-      {/* MODALS */}
       {showInterstitial && (
-        <InterstitialAd 
-          onClose={() => setShowInterstitial(false)} 
-          adUnitId={AdMobConfig.INTERSTITIAL_ID}
-        />
+        <InterstitialAd onClose={() => setShowInterstitial(false)} adUnitId={AdMobConfig.INTERSTITIAL_ID} />
       )}
-      
       {reportModalUser && (
-        <ReportModal 
-          user={reportModalUser} 
-          onClose={() => setReportModalUser(null)} 
-          onConfirm={submitReport} 
-        />
+        <ReportModal user={reportModalUser} onClose={() => setReportModalUser(null)} onConfirm={submitReport} />
       )}
-      
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white px-4 py-2 rounded-full shadow-xl text-xs font-bold animate-in fade-in slide-in-from-top-4 flex items-center gap-2">
           <Check size={12} className="text-emerald-400" /> {toastMessage}
         </div>
       )}
-
       {currentScreen === AppScreen.PROFILE_SETUP && (
-        <ProfileSetup 
-          myProfile={myProfile} 
-          setMyProfile={setMyProfile} 
-          onLoginSuccess={handleLoginSuccess} 
-        />
+        <ProfileSetup myProfile={myProfile} setMyProfile={setMyProfile} onLoginSuccess={handleLoginSuccess} />
       )}
-
       {currentScreen === AppScreen.NEARBY_LIST && (
         <NearbyList
           myProfile={myProfile}
@@ -468,7 +413,6 @@ export default function App() {
           trackAction={trackAction}
         />
       )}
-
       {currentScreen === AppScreen.CHAT && activeChatUser && (
         <Chat
           myProfile={myProfile}
@@ -479,16 +423,9 @@ export default function App() {
           onShareLocation={shareLocation}
         />
       )}
-
       {currentScreen === AppScreen.PROFILE_EDIT && (
-        <ProfileEdit 
-          user={myProfile} 
-          onSave={saveProfileChanges} 
-          onCancel={() => setCurrentScreen(AppScreen.NEARBY_LIST)} 
-          onLogout={handleLogout} 
-        />
+        <ProfileEdit user={myProfile} onSave={saveProfileChanges} onCancel={() => setCurrentScreen(AppScreen.NEARBY_LIST)} onLogout={handleLogout} />
       )}
-
       {currentScreen === AppScreen.USER_DETAIL && activeSelectedUser && (
         <UserDetail 
           user={activeSelectedUser} 
