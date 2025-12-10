@@ -1,4 +1,5 @@
-import { AdMobConfig } from '../admobConfig';
+
+import { AdMobConfig } from '../config/admob';
 import { AdMobPlugin } from '../types';
 
 // Access the global capacitor object

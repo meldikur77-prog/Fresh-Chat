@@ -26,9 +26,11 @@ const notifyListeners = () => {
 
 // Listen for changes from OTHER tabs
 window.addEventListener('storage', (e) => {
-  // e.key can be null if clear() was called
-  if (e.key && (e.key === USERS_KEY || e.key === MESSAGES_KEY || e.key.startsWith('rel_') || e.key.startsWith('last_read_'))) {
-    notifyListeners();
+  // TS18047 Fix: Explicitly check if e.key is not null before accessing properties
+  if (e.key !== null) {
+    if (e.key === USERS_KEY || e.key === MESSAGES_KEY || e.key.startsWith('rel_') || e.key.startsWith('last_read_')) {
+      notifyListeners();
+    }
   }
 });
 

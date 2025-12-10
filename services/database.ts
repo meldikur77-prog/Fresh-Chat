@@ -1,16 +1,19 @@
+
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, doc, setDoc, getDocs, 
-  onSnapshot, query, where, orderBy, addDoc, updateDoc 
+  onSnapshot, query, where, orderBy, addDoc, updateDoc,
+  Firestore
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
 import { User, Message, FriendStatus } from '../types';
-import { firebaseConfig, isFirebaseConfigured } from '../firebaseConfig';
+import { firebaseConfig, isFirebaseConfigured } from '../config/firebase';
 import { LocalDb } from './localDb';
 
 // --- FIREBASE INITIALIZATION ---
-let db: any;
-let auth: any;
+// Explicitly type as any or the correct type to avoid noImplicitAny build errors
+let db: Firestore | any;
+let auth: Auth | any;
 
 if (isFirebaseConfigured()) {
   const app = initializeApp(firebaseConfig);
