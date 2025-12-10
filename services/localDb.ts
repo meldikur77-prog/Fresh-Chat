@@ -1,3 +1,4 @@
+
 import { User, Message, FriendStatus, FriendshipData } from '../types';
 
 // Keys for LocalStorage
@@ -26,7 +27,9 @@ const notifyListeners = () => {
 
 // Listen for changes from OTHER tabs
 window.addEventListener('storage', (e) => {
+  // STRICT NULL CHECK FOR TYPESCRIPT
   if (!e.key) return;
+  
   if (e.key === USERS_KEY || e.key === MESSAGES_KEY || e.key.startsWith('rel_') || e.key.startsWith('last_read_') || e.key.startsWith(TYPING_KEY_PREFIX)) {
     notifyListeners();
   }

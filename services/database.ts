@@ -1,10 +1,11 @@
+
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, doc, setDoc, getDocs, 
   onSnapshot, query, where, orderBy, addDoc, updateDoc,
   Firestore, getDoc, increment, arrayUnion, deleteDoc
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, Auth, GoogleAuthProvider, signInWithPopup, deleteUser } from 'firebase/auth';
+import { getAuth, signInAnonymously, Auth, GoogleAuthProvider, signInWithPopup, deleteUser, OAuthProvider } from 'firebase/auth';
 import { getMessaging, getToken, Messaging } from 'firebase/messaging';
 import { User, Message, FriendStatus, FriendshipData } from '../types';
 import { firebaseConfig, isFirebaseConfigured } from '../config/firebase';
@@ -23,7 +24,8 @@ if (isFirebaseConfigured()) {
   
   auth.onAuthStateChanged((user: any) => {
     if (!user) {
-      signInAnonymously(auth).catch(console.error);
+      // signInAnonymously(auth).catch(console.error); 
+      // Commented out anonymous auth as we prefer explicit guest/google login flow
     }
   });
 }
@@ -125,6 +127,64 @@ export const DataService = {
     }
   },
 
+  loginWithApple: async (): Promise<User> => {
+    if (isFirebaseConfigured()) {
+      const provider = new OAuthProvider('apple.com');
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const fbUser = result.user;
+        const userDocRef = doc(db, 'users', fbUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (userDoc.exists()) {
+          return { id: userDoc.id, ...userDoc.data() } as User;
+        }
+        
+        return {
+          id: fbUser.uid,
+          name: fbUser.displayName || 'Apple User',
+          photoUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fbUser.displayName || 'User')}&background=000000&color=fff`,
+          gender: 'Other',
+          age: 25,
+          bio: '',
+          interests: [],
+          album: [],
+          location: { latitude: 0, longitude: 0 },
+          friendStatus: FriendStatus.NONE,
+          authMethod: 'apple',
+          unreadCount: 0,
+          hearts: 0,
+          views: 0,
+          lastActive: Date.now(),
+          blockedUsers: []
+        };
+      } catch (error) {
+        throw error;
+      }
+    } else {
+       // Simulation
+       const userId = `apple_${Date.now()}`;
+       return {
+          id: userId,
+          name: "Apple User (Sim)",
+          photoUrl: `https://ui-avatars.com/api/?name=Apple+User&background=000000&color=fff`,
+          gender: 'Other',
+          age: 25,
+          bio: '',
+          interests: [],
+          album: [],
+          location: { latitude: 0, longitude: 0 },
+          friendStatus: FriendStatus.NONE,
+          authMethod: 'apple',
+          unreadCount: 0,
+          hearts: 0,
+          views: 0,
+          lastActive: Date.now(),
+          blockedUsers: []
+       };
+    }
+  },
+
   subscribeToUsers: (currentUserId: string, callback: (users: User[]) => void) => {
     if (isFirebaseConfigured()) {
       const q = query(collection(db, 'users'));
@@ -183,35 +243,16 @@ export const DataService = {
     }
   },
 
-  // --- UNREAD COUNT LOGIC ---
   subscribeToUnreadCounts: (myId: string, callback: (counts: Record<string, number>) => void) => {
     if (isFirebaseConfigured()) {
-      // In Firestore, we listen to the 'chats' collection documents directly
-      // Note: In a production app with millions of chats, you might index this differently.
-      // But for this scale, listening to chats where I am a participant is okay if structured right.
-      // Since we don't have a 'participants' array on the chat doc in this simple schema, 
-      // we will query a special 'active_chats' collection or just rely on the client knowing chatIds.
-      
-      // ALTERNATIVE: Since we generate chatId deterministically (getChatId), and we have a list of Nearby Users,
-      // we can't listen to ALL of them. 
-      // Instead, we will assume the `chats` collection has documents named `u1_u2`.
-      // We will listen to all changes in `chats` collection.
-      // NOTE: This downloads ALL chats metadata. For a small app/prototype, this is acceptable for real-time responsiveness.
-      // For a massive app, you would only query chats where `participants` array-contains myId.
-      
-      const q = query(collection(db, 'chats')); // Ideally: where('participants', 'array-contains', myId)
+      const q = query(collection(db, 'chats'));
       return onSnapshot(q, (snapshot) => {
         const counts: Record<string, number> = {};
         snapshot.docs.forEach(doc => {
           const data = doc.data();
-          // The Chat ID is "userA_userB".
-          // We check if it involves me.
           if (doc.id.includes(myId)) {
-            // Extract other user ID
             const parts = doc.id.split('_');
             const otherId = parts[0] === myId ? parts[1] : parts[0];
-            
-            // Get unread count for ME
             const count = data[`unread_${myId}`] || 0;
             if (count > 0) {
               counts[otherId] = count;
@@ -221,18 +262,21 @@ export const DataService = {
         callback(counts);
       });
     } else {
-      // LocalDB fallback is tricky with this pattern, returning empty for now as LocalDb handles it via getUnreadCountSync
       return () => {};
     }
   },
 
   upsertUser: async (user: User) => {
+    // NUCLEAR SANITIZATION: Strip undefined values to prevent Firestore crashes
     const cleanUser = JSON.parse(JSON.stringify(user));
 
     if (isFirebaseConfigured()) {
+      // Default initial values for stats if missing
       if (cleanUser.hearts === undefined) cleanUser.hearts = 0;
       if (cleanUser.views === undefined) cleanUser.views = 0;
       if (cleanUser.blockedUsers === undefined) cleanUser.blockedUsers = [];
+      
+      // Use setDoc with merge:true to be safe against race conditions
       await setDoc(doc(db, 'users', user.id), cleanUser, { merge: true });
     } else {
       LocalDb.upsertUser(cleanUser);

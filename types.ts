@@ -1,3 +1,4 @@
+
 export interface Coordinates {
   latitude: number;
   longitude: number;
@@ -26,7 +27,7 @@ export interface User {
   friendRequestInitiator?: string; // ID of user who sent request
 
   unreadCount?: number;
-  authMethod?: 'google' | 'guest';
+  authMethod?: 'google' | 'guest' | 'apple';
   
   // Engagement Stats
   hearts?: number;

@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Sparkles, User as UserIcon, ChevronLeft, MapPin, X, FileText, Lock, AlertTriangle, Apple, AlertCircle } from 'lucide-react';
+import { Sparkles, User as UserIcon, ChevronLeft, MapPin, X, FileText, Lock, AlertTriangle, Apple, AlertCircle, Copy } from 'lucide-react';
 import { User, FriendStatus, Coordinates } from '../types';
 import { isFirebaseConfigured } from '../config/firebase';
 import { GoogleIcon } from '../components/common/GoogleIcon';
@@ -73,7 +74,6 @@ const PrivacyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
   </div>
 );
 
-
 export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProfile, onLoginSuccess }) => {
   const [setupMode, setSetupMode] = useState<'LANDING' | 'GUEST_FORM'>('LANDING');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -85,6 +85,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
   const [pendingUser, setPendingUser] = useState<User | null>(null);
   const [highlightCheckbox, setHighlightCheckbox] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [authErrorType, setAuthErrorType] = useState<string | null>(null);
 
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -97,6 +98,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
     }
     
     setLoginError(null);
+    setAuthErrorType(null);
     setIsLoggingIn(true);
     try {
       const user = await DataService.loginWithGoogle();
@@ -108,6 +110,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
       setIsLoggingIn(false);
       
       if (error && error.code === 'auth/unauthorized-domain') {
+        setAuthErrorType('unauthorized-domain');
         setLoginError("Setup Required: Add this domain (fresh-chat.pages.dev) to 'Authorized Domains' in Firebase Console > Auth > Settings.");
       } else if (error && error.code === 'auth/popup-closed-by-user') {
         setLoginError("Login cancelled.");
@@ -117,24 +120,24 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
     }
   };
 
-  const handleAppleLogin = () => {
+  const handleAppleLogin = async () => {
     if (!agreedToTerms) {
        shakeCheckbox();
        return;
     }
-    // For this prototype/PWA, we treat it like a guest login but with "Apple User" name
-    const userId = `apple_${Date.now()}`;
-    const newUser: User = {
-      ...myProfile,
-      id: userId,
-      name: "Apple User",
-      photoUrl: `https://ui-avatars.com/api/?name=Apple+User&background=000000&color=fff`,
-      authMethod: 'guest',
-      location: { latitude: 0, longitude: 0 },
-      friendStatus: FriendStatus.NONE
-    };
-    setPendingUser(newUser);
-    setShowLocationDisclosure(true);
+    
+    setLoginError(null);
+    setIsLoggingIn(true);
+    try {
+       const user = await DataService.loginWithApple();
+       setPendingUser(user);
+       setIsLoggingIn(false);
+       setShowLocationDisclosure(true);
+    } catch (error: any) {
+      console.error("Apple Login Error", error);
+      setIsLoggingIn(false);
+      setLoginError(error.message || "Apple Sign In failed. Ensure it is enabled in Firebase Console.");
+    }
   };
 
   const handleGuestLogin = () => {
@@ -193,6 +196,11 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
     setTimeout(() => setHighlightCheckbox(false), 500);
   };
 
+  const copyDomain = () => {
+    navigator.clipboard.writeText("fresh-chat.pages.dev");
+    alert("Copied: fresh-chat.pages.dev\nPaste this in Firebase Console.");
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 relative overflow-y-auto">
       {/* Modals */}
@@ -221,11 +229,32 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
         )}
         
         {loginError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex gap-3 animate-in fade-in slide-in-from-top-2">
-            <AlertCircle size={20} className="text-red-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-red-700 font-medium leading-relaxed">
-              {loginError}
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl animate-in fade-in slide-in-from-top-2">
+            <div className="flex gap-3">
+              <AlertCircle size={20} className="text-red-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-red-700 font-medium leading-relaxed break-words">
+                {loginError}
+              </div>
             </div>
+            {authErrorType === 'unauthorized-domain' && (
+              <button 
+                onClick={copyDomain}
+                className="mt-3 w-full py-2 bg-red-100 text-red-700 text-xs font-bold rounded-lg flex items-center justify-center gap-2 hover:bg-red-200 transition"
+              >
+                <Copy size={12} /> Copy Domain (fresh-chat.pages.dev)
+              </button>
+            )}
+            {authErrorType === 'unauthorized-domain' && (
+              <div className="mt-3 pt-3 border-t border-red-100 text-[10px] text-red-600">
+                 <p className="font-bold mb-1">How to fix:</p>
+                 <ol className="list-decimal pl-4 space-y-1">
+                   <li>Go to Firebase Console</li>
+                   <li>Go to Authentication &gt; Settings &gt; Authorized domains</li>
+                   <li>Click Add Domain</li>
+                   <li>Paste: <strong>fresh-chat.pages.dev</strong></li>
+                 </ol>
+              </div>
+            )}
           </div>
         )}
 
@@ -234,7 +263,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
           <div className="flex flex-col items-center justify-center py-8">
             <div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
             <p className="text-slate-500 font-medium text-sm animate-pulse">
-              {isLoggingIn ? 'Connecting to Google...' : 'Finding nearby users...'}
+              {isLoggingIn ? 'Connecting...' : 'Finding nearby users...'}
             </p>
           </div>
         )}
@@ -274,9 +303,9 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({ myProfile, setMyProf
 
         {/* LANDING SCREEN */}
         {!loadingLocation && !isLoggingIn && !showLocationDisclosure && setupMode === 'LANDING' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
              {/* EULA CHECKBOX (MANDATORY - PLACED FRONT) */}
-             <div className={`p-3 rounded-xl border flex gap-3 items-start transition-all duration-300 ${highlightCheckbox ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
+             <div className={`p-3 rounded-xl border flex gap-3 items-start transition-all duration-300 shrink-0 ${highlightCheckbox ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-slate-50 border-slate-100'}`}>
                 <div className="pt-0.5 shrink-0">
                   <input 
                     type="checkbox" 

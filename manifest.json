@@ -1,21 +1,31 @@
 {
-  "short_name": "Fresh Chat",
-  "name": "Fresh Chat Messenger",
+  "name": "Fresh Chat",
+  "short_name": "FreshChat",
+  "description": "A location-based messenger app connecting you with people nearby using GPS.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f0fdf4",
+  "theme_color": "#10b981",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
-  ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#10b981",
-  "background_color": "#f0fdf4",
-  "orientation": "portrait"
+  ]
 }

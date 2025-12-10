@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, Heart, WifiOff, AlertTriangle } from 'lucide-react';
 import { AppScreen, User, Message, Coordinates, FriendStatus, FriendshipData } from './types';
@@ -237,6 +238,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: User) => {
+    // Preserve existing stats if they exist on the server user object
     const newUser: User = { 
       ...user, 
       hearts: user.hearts ?? 0, 

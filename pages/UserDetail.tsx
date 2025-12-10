@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
 import { ChevronLeft, Shield, MapPin, MessageCircle, Clock, UserPlus, Heart, Eye, AlertTriangle, Check } from 'lucide-react';
 import { User, FriendStatus } from '../types';
@@ -33,15 +34,14 @@ export const UserDetail: React.FC<UserDetailProps> = ({
     } 
     
     if (user.friendStatus === FriendStatus.PENDING) {
-      // If I sent it, show disabled "Request Sent"
-      // If ID is available, check it. If undefined (legacy data), default to disabled to be safe.
-      const iSentIt = user.friendRequestInitiator === undefined || user.friendRequestInitiator !== user.id; // Heuristic: if initiator is NOT them, it's me.
+      // Logic: If I initiated it, show "Sent" (disabled). If they initiated it (or initiator is me?), logic needs to be careful.
+      // The user object passed here has been processed in App.tsx. 
+      // If user.friendRequestInitiator === user.id, it means THE OTHER USER initiated it.
+      // If user.friendRequestInitiator !== user.id, it means I initiated it (or it's undefined/legacy).
       
-      // Better check: passed from App.tsx where logic handles myProfile.id comparison
-      // But here we might not have myId easily accessible without props drilling. 
-      // Ideally, pass 'isIncomingRequest' prop. 
-      // However, we can infer: if friendRequestInitiator matches THIS user's ID, then THEY sent it.
-      if (user.friendRequestInitiator === user.id) {
+      const theyInitiated = user.friendRequestInitiator === user.id;
+
+      if (theyInitiated) {
          // They sent it -> Show Accept
          return (
             <button onClick={() => onAddFriend(user)} className="flex-1 bg-emerald-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-emerald-200 active:scale-95 transition flex items-center justify-center gap-2 animate-pulse">
@@ -49,7 +49,7 @@ export const UserDetail: React.FC<UserDetailProps> = ({
             </button>
          );
       } else {
-         // I sent it -> Show Waiting
+         // I sent it (or default) -> Show Waiting
          return (
             <button className="flex-1 bg-slate-100 text-slate-400 py-3 rounded-xl font-bold cursor-default flex items-center justify-center gap-2">
                <Clock size={20} /> Request Sent
@@ -89,6 +89,7 @@ export const UserDetail: React.FC<UserDetailProps> = ({
              {user.gender === 'Female' && <span className="text-pink-400 text-xl">♀</span>}
              {user.gender === 'Male' && <span className="text-blue-400 text-xl">♂</span>}
              {user.authMethod === 'google' && <Shield size={20} className="fill-blue-500 text-white" />}
+             {user.authMethod === 'apple' && <Shield size={20} className="fill-black text-white" />}
            </h1>
            <p className="text-slate-300 font-medium flex items-center gap-1 mt-1">
              <MapPin size={14} /> {user.distance} km away

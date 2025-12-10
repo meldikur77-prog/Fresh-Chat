@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { MapPin, Filter, Crown, Check, Users, Shield, MessageCircle, Clock, UserPlus, Heart } from 'lucide-react';
 import { User, AppScreen, FriendStatus } from '../types';
@@ -158,6 +159,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                   <h3 className="font-bold text-slate-800 truncate flex items-center gap-1">
                     {user.name} 
                     {user.authMethod === 'google' && <div className="text-blue-500" title="Verified Google User"><Shield size={12} className="fill-blue-500 text-white" /></div>}
+                    {user.authMethod === 'apple' && <div className="text-slate-800" title="Verified Apple User"><Shield size={12} className="fill-black text-white" /></div>}
                   </h3>
                   <div className="flex items-center gap-1">
                     <span className="text-xs font-semibold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-md whitespace-nowrap">
@@ -192,7 +194,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                      <MessageCircle size={20} />
                    </button>
                  ) : user.friendStatus === FriendStatus.PENDING ? (
-                    user.friendRequestInitiator === myProfile.id ? (
+                    (user.friendRequestInitiator === undefined || user.friendRequestInitiator === myProfile.id) ? (
                       <button disabled className="w-20 h-9 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center cursor-default gap-1 px-3">
                         <Clock size={14} /> <span className="text-[10px] font-bold">Sent</span>
                       </button>
