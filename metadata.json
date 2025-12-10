@@ -1,0 +1,7 @@
+{
+  "name": "Fresh Chat",
+  "description": "A location-based messenger app connecting you with people nearby using GPS and AI-powered conversations.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
