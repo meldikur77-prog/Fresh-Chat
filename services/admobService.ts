@@ -1,24 +1,13 @@
 import { AdMobConfig } from '../admobConfig';
-
-// This interface mimics the @capacitor-community/admob plugin
-// In a real build environment, you would install the package.
-interface AdMobPlugin {
-  initialize: () => Promise<void>;
-  showBanner: (options: any) => Promise<void>;
-  hideBanner: () => Promise<void>;
-  prepareInterstitial: (options: any) => Promise<void>;
-  showInterstitial: () => Promise<void>;
-}
+import { AdMobPlugin } from '../types';
 
 // Access the global capacitor object
 const getAdMob = (): AdMobPlugin | undefined => {
-  // @ts-ignore
   return window.Capacitor?.Plugins?.AdMob;
 };
 
 // Check if running in a native Android/iOS shell
 const isNative = (): boolean => {
-  // @ts-ignore
   return window.Capacitor?.isNativePlatform() || false;
 };
 

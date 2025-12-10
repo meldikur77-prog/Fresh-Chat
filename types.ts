@@ -53,3 +53,15 @@ export interface AdMobPlugin {
   prepareInterstitial: (options: any) => Promise<void>;
   showInterstitial: () => Promise<void>;
 }
+
+// Global declaration to fix window.Capacitor build errors
+declare global {
+  interface Window {
+    Capacitor?: {
+      isNativePlatform: () => boolean;
+      Plugins: {
+        AdMob: AdMobPlugin;
+      };
+    };
+  }
+}

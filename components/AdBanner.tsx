@@ -29,9 +29,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({ isPremium, adUnitId }) => {
   // --- WEB FALLBACK ---
   // If we are NOT on native (Web Browser), show the CSS simulation
   // We determine this by checking Capacitor presence
-  const isNative = typeof window !== 'undefined' && 
-                   // @ts-ignore
-                   window.Capacitor?.isNativePlatform();
+  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform();
 
   if (isNative) {
     // Native banner is an overlay, we just need a spacer div at the bottom

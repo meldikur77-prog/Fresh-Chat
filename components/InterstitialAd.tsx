@@ -13,7 +13,6 @@ export const InterstitialAd: React.FC<InterstitialAdProps> = ({ onClose, adUnitI
 
   useEffect(() => {
     // Check if we can show native ad
-    // @ts-ignore
     const native = window.Capacitor?.isNativePlatform();
     setIsNative(!!native);
 
