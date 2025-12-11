@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { MapPin, Filter, Crown, Check, Users, Shield, MessageCircle, Clock, UserPlus, Heart } from 'lucide-react';
+import { MapPin, Filter, Crown, Check, Users, Shield, MessageCircle, Clock, UserPlus, Flame, Trophy, Radio, Activity } from 'lucide-react';
 import { User, AppScreen, FriendStatus } from '../types';
 import { AdBanner } from '../components/AdBanner';
 import { AdMobConfig } from '../config/admob';
@@ -11,8 +11,9 @@ interface NearbyListProps {
   isPremium: boolean;
   genderFilter: 'All' | 'Male' | 'Female';
   setGenderFilter: (v: 'All' | 'Male' | 'Female') => void;
-  listTab: 'NEARBY' | 'FRIENDS';
-  setListTab: (v: 'NEARBY' | 'FRIENDS') => void;
+  // UPDATED: Added 'CHATS' to the allowed tab types
+  listTab: 'NEARBY' | 'FRIENDS' | 'CHATS';
+  setListTab: (v: 'NEARBY' | 'FRIENDS' | 'CHATS') => void;
   togglePremium: () => void;
   setCurrentScreen: (s: AppScreen) => void;
   openUserProfile: (u: User) => void;
@@ -25,19 +26,136 @@ interface NearbyListProps {
 const ACTIVE_THRESHOLD = 15 * 60 * 1000; // 15 Minutes
 
 const SkeletonUser = () => (
-  <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 animate-pulse">
-    <div className="w-16 h-16 rounded-2xl bg-slate-200 shrink-0" />
-    <div className="flex-1 min-w-0">
-      <div className="h-4 bg-slate-200 rounded w-2/3 mb-2" />
-      <div className="h-3 bg-slate-200 rounded w-1/2 mb-2" />
-      <div className="flex gap-1">
-        <div className="h-3 bg-slate-200 rounded w-12" />
-        <div className="h-3 bg-slate-200 rounded w-8" />
+  <div className="bg-white p-4 rounded-[24px] shadow-sm border border-slate-50 flex items-center gap-4 animate-pulse">
+    <div className="w-[72px] h-[72px] rounded-[20px] bg-slate-100 shrink-0" />
+    <div className="flex-1 min-w-0 py-1">
+      <div className="h-5 bg-slate-100 rounded-lg w-2/3 mb-3" />
+      <div className="h-3 bg-slate-100 rounded-full w-1/2 mb-3" />
+      <div className="flex gap-2">
+        <div className="h-4 bg-slate-100 rounded-md w-12" />
+        <div className="h-4 bg-slate-100 rounded-md w-8" />
       </div>
     </div>
-    <div className="w-9 h-9 rounded-full bg-slate-200 shrink-0" />
   </div>
 );
+
+// OPTIMIZATION: Memoized User Card to prevent re-rendering entire list when one user updates
+const UserCard = React.memo(({ 
+  user, myProfile, isOnline, openUserProfile, openChat, handleAddFriend, handleConfirmFriend 
+}: { 
+  user: User; 
+  myProfile: User;
+  isOnline: boolean;
+  openUserProfile: (u: User) => void;
+  openChat: (u: User) => void;
+  handleAddFriend: (u: User) => void;
+  handleConfirmFriend: (u: User) => void;
+}) => {
+  return (
+    <div className="group relative bg-white/80 backdrop-blur-sm p-4 rounded-[28px] shadow-sm hover:shadow-lg transition-all border border-white flex items-center gap-4">
+      {/* Avatar */}
+      <div className="relative shrink-0 cursor-pointer" onClick={() => openUserProfile(user)}>
+         <img 
+           src={user.photoUrl} 
+           className="w-[72px] h-[72px] rounded-[24px] object-cover bg-slate-100 shadow-inner group-hover:scale-105 transition-transform duration-300" 
+           alt={user.name}
+           loading="lazy" 
+           decoding="async"
+         />
+         {isOnline && (
+           <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-400 rounded-full border-[3px] border-white z-10 animate-pulse-glow flex items-center justify-center">
+             <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+           </div>
+         )}
+         {/* Level Badge */}
+         <div className="absolute -bottom-2 right-1/2 translate-x-1/2 bg-slate-800 text-yellow-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full shadow-sm border border-slate-600 flex items-center gap-0.5 z-20">
+            <Trophy size={8} className="fill-yellow-400" /> {user.level || 1}
+         </div>
+      </div>
+      
+      {/* Info */}
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openChat(user)}>
+        <div className="flex justify-between items-start mb-1">
+          <h3 className="font-extrabold text-lg text-slate-800 truncate flex items-center gap-1.5">
+            {user.name} 
+            {user.authMethod === 'google' && <Shield size={14} className="fill-blue-500 text-white" />}
+            {user.authMethod === 'apple' && <Shield size={14} className="fill-black text-white" />}
+          </h3>
+          <div className="flex items-center gap-1.5">
+            
+            {/* STREAK INDICATOR */}
+            {(user.streak || 0) > 0 && (
+               <span className="flex items-center gap-0.5 text-[10px] font-extrabold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-100">
+                  <Flame size={10} className="fill-orange-500" /> {user.streak}
+               </span>
+            )}
+
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md whitespace-nowrap border border-emerald-100">
+              {user.distance} km
+            </span>
+            {user.unreadCount && user.unreadCount > 0 ? (
+              <span className="bg-rose-500 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-lg shadow-rose-200 animate-bounce">
+                {user.unreadCount}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        
+        <p className="text-xs text-slate-500 truncate mb-3 font-medium opacity-80">{user.bio || 'New to Fresh Chat'}</p>
+        
+        <div className="flex justify-between items-center">
+          <div className="flex gap-1 overflow-hidden h-6 mask-gradient-r">
+             {user.interests.slice(0, 3).map(tag => (
+               <span key={tag} className="text-[9px] px-2 py-1 bg-slate-100 text-slate-500 rounded-md font-bold uppercase tracking-wide">
+                 {tag}
+               </span>
+             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Action Button */}
+      <div className="flex flex-col gap-2 shrink-0 self-center pl-2 border-l border-slate-100">
+         {user.friendStatus === FriendStatus.FRIEND ? (
+           <button onClick={() => openChat(user)} className="w-10 h-10 bg-gradient-to-tr from-emerald-400 to-teal-500 text-white shadow-lg shadow-emerald-200 rounded-2xl flex items-center justify-center active:scale-90 transition">
+             <MessageCircle size={20} className="fill-white/20" />
+           </button>
+         ) : user.friendStatus === FriendStatus.PENDING ? (
+            (user.friendRequestInitiator === undefined || user.friendRequestInitiator === myProfile.id) ? (
+              <div className="flex flex-col items-center gap-1">
+                <button disabled className="w-10 h-10 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center cursor-default">
+                  <Clock size={20} />
+                </button>
+                <span className="text-[9px] text-slate-400 font-bold">Sent</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1">
+                <button onClick={() => handleConfirmFriend(user)} className="w-10 h-10 bg-emerald-500 text-white shadow-lg shadow-emerald-200 rounded-2xl flex items-center justify-center animate-pulse">
+                  <Check size={20} />
+                </button>
+                <span className="text-[9px] text-emerald-600 font-bold">Accept</span>
+              </div>
+            )
+         ) : (
+           <button onClick={() => handleAddFriend(user)} className="w-10 h-10 bg-white text-slate-400 border-2 border-slate-100 rounded-2xl flex items-center justify-center hover:border-emerald-200 hover:text-emerald-500 transition active:scale-90">
+             <UserPlus size={20} />
+           </button>
+         )}
+      </div>
+    </div>
+  );
+}, (prev, next) => {
+  // Memoization comparison function: Only re-render if data actually changed
+  return (
+    prev.user.id === next.user.id &&
+    prev.user.friendStatus === next.user.friendStatus &&
+    prev.user.unreadCount === next.user.unreadCount &&
+    prev.user.lastActive === next.user.lastActive &&
+    prev.user.level === next.user.level &&
+    prev.user.streak === next.user.streak &&
+    prev.isOnline === next.isOnline
+  );
+});
 
 export const NearbyList: React.FC<NearbyListProps> = ({
   myProfile, nearbyUsers, isPremium, genderFilter, setGenderFilter,
@@ -46,87 +164,116 @@ export const NearbyList: React.FC<NearbyListProps> = ({
 }) => {
   const [showFilterModal, setShowFilterModal] = useState(false);
 
-  let filtered = nearbyUsers;
-  
-  if (genderFilter !== 'All') {
-    filtered = filtered.filter(u => u.gender === genderFilter);
-  }
-  
-  if (listTab === 'FRIENDS') {
-    filtered = filtered.filter(u => u.friendStatus === FriendStatus.FRIEND);
-  }
-
   const isOnline = (timestamp?: number) => {
     if (!timestamp) return false;
     return (Date.now() - timestamp) < ACTIVE_THRESHOLD;
   };
 
+  let filtered = nearbyUsers;
+  
+  // 1. FILTER BY GENDER
+  if (genderFilter !== 'All') {
+    filtered = filtered.filter(u => u.gender === genderFilter);
+  }
+  
+  // 2. FILTER BY TAB
+  if (listTab === 'FRIENDS') {
+    filtered = filtered.filter(u => u.friendStatus === FriendStatus.FRIEND);
+  } else if (listTab === 'CHATS') {
+    // "LIVE" TAB LOGIC:
+    // 1. Must be Online (Hide if offline)
+    // 2. Must be active chatting (Friend OR has Unread messages)
+    filtered = filtered.filter(u => {
+      const online = isOnline(u.lastActive);
+      if (!online) return false; // Strictly hide offline users in this tab
+      
+      const isChatting = u.friendStatus === FriendStatus.FRIEND || (u.unreadCount || 0) > 0;
+      return isChatting;
+    });
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-slate-50 relative">
-      <div className="pt-safe-top pb-2 px-6 bg-white sticky top-0 z-20 shadow-sm">
-        <div className="flex justify-between items-center h-16">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentScreen(AppScreen.PROFILE_EDIT)}>
-            <img src={myProfile.photoUrl} alt="Me" className="w-10 h-10 rounded-full border border-slate-200 bg-slate-100 object-cover" />
+    <div className="flex flex-col h-screen relative bg-transparent">
+      {/* Floating Glass Header */}
+      <div className="absolute top-0 left-0 right-0 z-30 pt-safe-top pointer-events-none">
+        <div className="mx-4 mt-2 bg-white/80 backdrop-blur-xl border border-white/50 shadow-lg shadow-slate-200/50 rounded-[28px] p-2 flex justify-between items-center pointer-events-auto">
+          <div className="flex items-center gap-3 cursor-pointer pl-1" onClick={() => setCurrentScreen(AppScreen.PROFILE_EDIT)}>
+            <div className="relative">
+               <img src={myProfile.photoUrl} alt="Me" className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover" />
+               <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white"></div>
+               {/* My Level Badge */}
+               <div className="absolute -bottom-2 -left-1 bg-slate-800 text-yellow-400 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm border border-white z-20 flex items-center gap-0.5">
+                   <Trophy size={6} className="fill-yellow-400" /> {myProfile.level || 1}
+               </div>
+            </div>
             <div>
-              <h2 className="font-bold text-lg text-slate-800 leading-tight">Fresh Chat</h2>
-              <div className="flex items-center gap-1 text-emerald-500 text-xs font-semibold">
-                <MapPin size={10} className="fill-emerald-500" /> Current Location
+              <h2 className="font-extrabold text-base text-slate-800 leading-none mb-0.5">Fresh Chat</h2>
+              <div className="flex items-center gap-1 text-emerald-600 text-[10px] font-bold uppercase tracking-wider">
+                <MapPin size={10} className="fill-emerald-600" /> Location On
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-1">
             <button 
               onClick={() => setShowFilterModal(!showFilterModal)} 
-              className={`p-2.5 rounded-full transition ${genderFilter !== 'All' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}
-              aria-label="Filter Users"
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-95 ${genderFilter !== 'All' ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-slate-100 text-slate-400'}`}
             >
               <Filter size={20} />
             </button>
             <button 
               onClick={togglePremium} 
-              className={`p-2.5 rounded-full transition ${isPremium ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-95 ${isPremium ? 'bg-amber-100 text-amber-500' : 'hover:bg-slate-100 text-slate-400'}`}
             >
-              <Crown size={20} className={isPremium ? 'fill-amber-600' : ''} />
+              <Crown size={20} className={isPremium ? 'fill-amber-500' : ''} />
             </button>
           </div>
         </div>
-
-        <div className="flex p-1 bg-slate-100 rounded-xl mt-2 mb-2">
-          <button 
-            onClick={() => { setListTab('NEARBY'); trackAction(); }}
-            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${listTab === 'NEARBY' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
-          >
-            Nearby
-          </button>
-          <button 
-            onClick={() => { setListTab('FRIENDS'); trackAction(); }}
-            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${listTab === 'FRIENDS' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
-          >
-            Friends
-          </button>
+        
+        {/* Floating Tabs */}
+        <div className="flex justify-center mt-3 pointer-events-auto px-4">
+           <div className="bg-white/60 backdrop-blur-md p-1 rounded-2xl flex shadow-sm border border-white/40 w-full max-w-sm">
+             <button 
+                onClick={() => { setListTab('NEARBY'); trackAction(); }}
+                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-wide rounded-xl transition-all ${listTab === 'NEARBY' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Nearby
+              </button>
+              <button 
+                onClick={() => { setListTab('FRIENDS'); trackAction(); }}
+                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-wide rounded-xl transition-all ${listTab === 'FRIENDS' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Friends
+              </button>
+              <button 
+                onClick={() => { setListTab('CHATS'); trackAction(); }}
+                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-wide rounded-xl transition-all flex items-center justify-center gap-1 ${listTab === 'CHATS' ? 'bg-rose-500 text-white shadow-sm shadow-rose-200' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                <Activity size={10} className={listTab === 'CHATS' ? "animate-pulse" : ""} /> LIVE
+              </button>
+           </div>
         </div>
       </div>
 
       {showFilterModal && (
         <>
-          <div className="fixed inset-0 z-20" onClick={() => setShowFilterModal(false)}></div>
-          <div className="absolute top-28 right-6 z-30 bg-white p-4 rounded-2xl shadow-xl border border-slate-100 w-48 animate-in fade-in slide-in-from-top-4">
-              <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide">Filter Gender</div>
+          <div className="fixed inset-0 z-40 bg-black/10 backdrop-blur-[2px]" onClick={() => setShowFilterModal(false)}></div>
+          <div className="absolute top-20 right-6 z-50 bg-white/90 backdrop-blur-xl p-2 rounded-[24px] shadow-2xl border border-white/50 w-48 animate-in fade-in zoom-in-95 duration-200">
+              <div className="text-[10px] font-bold text-slate-400 mb-1 px-3 pt-2 uppercase tracking-wide">Show Me</div>
               {(['All', 'Male', 'Female'] as const).map(opt => (
                 <button
                   key={opt}
                   onClick={() => { setGenderFilter(opt); setShowFilterModal(false); }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium mb-1 flex justify-between items-center ${genderFilter === opt ? 'bg-emerald-50 text-emerald-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                  className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold mb-1 flex justify-between items-center transition-colors ${genderFilter === opt ? 'bg-emerald-50 text-emerald-600' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
-                  {opt} {genderFilter === opt && <Check size={14} />}
+                  {opt} {genderFilter === opt && <Check size={16} />}
                 </button>
               ))}
-              {!isPremium && <div className="mt-2 pt-2 border-t text-[10px] text-slate-400 text-center">Unlock more with Premium</div>}
           </div>
         </>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      {/* Main List */}
+      <div className="flex-1 overflow-y-auto px-4 pt-36 pb-20 space-y-4 no-scrollbar">
         {nearbyUsers.length === 0 && !filtered.length && (
            <>
              <SkeletonUser />
@@ -136,86 +283,42 @@ export const NearbyList: React.FC<NearbyListProps> = ({
         )}
 
         {nearbyUsers.length > 0 && filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-             <Users size={48} className="mb-2 opacity-50" />
-             <p>No users found matching filter.</p>
-             {listTab === 'NEARBY' && <p className="text-xs mt-2">Try adjusting your filters.</p>}
+          <div className="flex flex-col items-center justify-center h-64 text-slate-300 animate-in fade-in duration-500">
+             {listTab === 'CHATS' ? (
+                <>
+                  <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-4">
+                     <Activity size={32} className="text-rose-300" />
+                  </div>
+                  <p className="font-bold text-lg text-slate-400">No Live Chats</p>
+                  <p className="text-sm text-center max-w-[200px] mt-2">Only friends who are currently Online will appear here.</p>
+                </>
+             ) : (
+                <>
+                  <Users size={64} className="mb-4 opacity-50" />
+                  <p className="font-bold text-lg">No matches found</p>
+                  {listTab === 'NEARBY' && <p className="text-sm">Adjust your filters to see more.</p>}
+                </>
+             )}
           </div>
         ) : (
           filtered.map(user => (
-            <div key={user.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 active:scale-[0.99] transition-transform flex items-center gap-4">
-              <div className="relative shrink-0 cursor-pointer" onClick={() => openUserProfile(user)}>
-                 <img src={user.photoUrl} className="w-16 h-16 rounded-2xl object-cover bg-slate-100" alt={user.name} />
-                 {isOnline(user.lastActive) && (
-                   <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white z-10" />
-                 )}
-                 <div className="absolute -bottom-2 -left-1 bg-white px-1.5 py-0.5 rounded-lg shadow-sm border border-slate-100">
-                   <span className="text-[9px] font-bold text-slate-600">{user.age}</span>
-                 </div>
-              </div>
-              
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openChat(user)}>
-                <div className="flex justify-between items-start mb-0.5">
-                  <h3 className="font-bold text-slate-800 truncate flex items-center gap-1">
-                    {user.name} 
-                    {user.authMethod === 'google' && <div className="text-blue-500" title="Verified Google User"><Shield size={12} className="fill-blue-500 text-white" /></div>}
-                    {user.authMethod === 'apple' && <div className="text-slate-800" title="Verified Apple User"><Shield size={12} className="fill-black text-white" /></div>}
-                  </h3>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs font-semibold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-md whitespace-nowrap">
-                      {user.distance} km
-                    </span>
-                    {user.unreadCount && user.unreadCount > 0 ? (
-                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center shadow-md animate-pulse">
-                        {user.unreadCount}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <p className="text-xs text-slate-500 truncate mb-2">{user.bio || 'No bio available'}</p>
-                
-                <div className="flex justify-between items-center">
-                  <div className="flex gap-1 flex-wrap">
-                     {user.interests.slice(0, 2).map(tag => (
-                       <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-md font-medium">#{tag}</span>
-                     ))}
-                  </div>
-                  {user.hearts && user.hearts > 0 ? (
-                    <div className="flex items-center gap-0.5 text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full">
-                      <Heart size={10} className="fill-rose-500" /> {user.hearts}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 shrink-0">
-                 {user.friendStatus === FriendStatus.FRIEND ? (
-                   <button onClick={() => openChat(user)} className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
-                     <MessageCircle size={20} />
-                   </button>
-                 ) : user.friendStatus === FriendStatus.PENDING ? (
-                    (user.friendRequestInitiator === undefined || user.friendRequestInitiator === myProfile.id) ? (
-                      <button disabled className="w-20 h-9 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center cursor-default gap-1 px-3">
-                        <Clock size={14} /> <span className="text-[10px] font-bold">Sent</span>
-                      </button>
-                    ) : (
-                      <button onClick={() => handleConfirmFriend(user)} className="w-20 h-9 bg-emerald-500 text-white shadow-lg shadow-emerald-200 rounded-full flex items-center justify-center animate-pulse gap-1 px-3">
-                        <Check size={14} /> <span className="text-[10px] font-bold">Accept</span>
-                      </button>
-                    )
-                 ) : (
-                   <button onClick={() => handleAddFriend(user)} className="w-10 h-10 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center hover:bg-slate-200 transition">
-                     <UserPlus size={20} />
-                   </button>
-                 )}
-              </div>
-            </div>
+            <UserCard 
+              key={user.id} 
+              user={user} 
+              myProfile={myProfile} 
+              isOnline={isOnline(user.lastActive)}
+              openUserProfile={openUserProfile}
+              openChat={openChat}
+              handleAddFriend={handleAddFriend}
+              handleConfirmFriend={handleConfirmFriend}
+            />
           ))
         )}
-        <div className="h-16" />
       </div>
 
-      <AdBanner isPremium={isPremium} adUnitId={AdMobConfig.BANNER_ID} />
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-t border-white">
+        <AdBanner isPremium={isPremium} adUnitId={AdMobConfig.BANNER_ID} />
+      </div>
     </div>
   );
 };

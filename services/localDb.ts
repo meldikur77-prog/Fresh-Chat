@@ -132,6 +132,22 @@ export const LocalDb = {
   markAsRead: (chatId: string, userId: string) => {
     const key = `last_read_${chatId}_${userId}`;
     localStorage.setItem(key, Date.now().toString());
+    
+    // Also mark messages as read
+    const all = getStoredMessages();
+    if (all[chatId]) {
+      let changed = false;
+      all[chatId].forEach(msg => {
+        if (msg.senderId !== userId && !msg.isRead) {
+          msg.isRead = true;
+          changed = true;
+        }
+      });
+      if (changed) {
+        localStorage.setItem(MESSAGES_KEY, JSON.stringify(all));
+      }
+    }
+    
     notifyListeners();
   },
 

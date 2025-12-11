@@ -3,13 +3,14 @@ import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, doc, setDoc, getDocs, 
   onSnapshot, query, where, orderBy, addDoc, updateDoc,
-  Firestore, getDoc, increment, arrayUnion, deleteDoc
+  Firestore, getDoc, increment, arrayUnion, deleteDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth, GoogleAuthProvider, signInWithPopup, deleteUser, OAuthProvider } from 'firebase/auth';
 import { getMessaging, getToken, Messaging } from 'firebase/messaging';
 import { User, Message, FriendStatus, FriendshipData } from '../types';
 import { firebaseConfig, isFirebaseConfigured } from '../config/firebase';
 import { LocalDb } from './localDb';
+import { calculateLevel, isConsecutiveDay, isSameDay } from '../utils';
 
 // --- FIREBASE INITIALIZATION ---
 let db: Firestore | any;
@@ -25,7 +26,6 @@ if (isFirebaseConfigured()) {
   auth.onAuthStateChanged((user: any) => {
     if (!user) {
       // signInAnonymously(auth).catch(console.error); 
-      // Commented out anonymous auth as we prefer explicit guest/google login flow
     }
   });
 }
@@ -95,7 +95,10 @@ export const DataService = {
           hearts: 0,
           views: 0,
           lastActive: Date.now(),
-          blockedUsers: []
+          blockedUsers: [],
+          xp: 0,
+          level: 1,
+          badges: []
         };
       } catch (error) {
         throw error;
@@ -120,7 +123,10 @@ export const DataService = {
              hearts: 0,
              views: 0,
              lastActive: Date.now(),
-             blockedUsers: []
+             blockedUsers: [],
+             xp: 0,
+             level: 1,
+             badges: []
            });
         }, 1500);
       });
@@ -156,13 +162,15 @@ export const DataService = {
           hearts: 0,
           views: 0,
           lastActive: Date.now(),
-          blockedUsers: []
+          blockedUsers: [],
+          xp: 0,
+          level: 1,
+          badges: []
         };
       } catch (error) {
         throw error;
       }
     } else {
-       // Simulation
        const userId = `apple_${Date.now()}`;
        return {
           id: userId,
@@ -180,7 +188,10 @@ export const DataService = {
           hearts: 0,
           views: 0,
           lastActive: Date.now(),
-          blockedUsers: []
+          blockedUsers: [],
+          xp: 0,
+          level: 1,
+          badges: []
        };
     }
   },
@@ -211,7 +222,9 @@ export const DataService = {
              if (otherId) {
                 rels[otherId] = {
                   status: data.status as FriendStatus,
-                  initiatedBy: data.initiatedBy
+                  initiatedBy: data.initiatedBy,
+                  streak: data.streak || 0,
+                  lastInteraction: data.lastInteraction
                 };
              }
           });
@@ -267,19 +280,62 @@ export const DataService = {
   },
 
   upsertUser: async (user: User) => {
-    // NUCLEAR SANITIZATION: Strip undefined values to prevent Firestore crashes
     const cleanUser = JSON.parse(JSON.stringify(user));
 
     if (isFirebaseConfigured()) {
-      // Default initial values for stats if missing
       if (cleanUser.hearts === undefined) cleanUser.hearts = 0;
       if (cleanUser.views === undefined) cleanUser.views = 0;
+      if (cleanUser.xp === undefined) cleanUser.xp = 0;
+      if (cleanUser.level === undefined) cleanUser.level = 1;
+      if (cleanUser.badges === undefined) cleanUser.badges = [];
       if (cleanUser.blockedUsers === undefined) cleanUser.blockedUsers = [];
       
-      // Use setDoc with merge:true to be safe against race conditions
       await setDoc(doc(db, 'users', user.id), cleanUser, { merge: true });
     } else {
       LocalDb.upsertUser(cleanUser);
+    }
+  },
+
+  // --- GAMIFICATION: AWARD XP ---
+  awardXP: async (userId: string, amount: number) => {
+    if (isFirebaseConfigured()) {
+      const userRef = doc(db, 'users', userId);
+      try {
+        await runTransaction(db, async (transaction) => {
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) return;
+
+          const data = userDoc.data();
+          const currentXP = data.xp || 0;
+          const newXP = currentXP + amount;
+          const currentLevel = calculateLevel(currentXP);
+          const newLevel = calculateLevel(newXP);
+          
+          let badges = data.badges || [];
+          const hearts = data.hearts || 0;
+
+          // Check for Badges
+          if (!badges.includes('popular') && hearts >= 10) badges.push('popular');
+          if (!badges.includes('superstar') && hearts >= 50) badges.push('superstar');
+          if (!badges.includes('veteran') && newLevel >= 5) badges.push('veteran');
+
+          transaction.update(userRef, { 
+            xp: newXP, 
+            level: newLevel,
+            badges: badges
+          });
+        });
+      } catch (e) {
+        console.error("Error awarding XP", e);
+      }
+    } else {
+       const users = LocalDb.getUsers();
+       const u = users.find(u => u.id === userId);
+       if (u) {
+         u.xp = (u.xp || 0) + amount;
+         u.level = calculateLevel(u.xp);
+         LocalDb.upsertUser(u);
+       }
     }
   },
 
@@ -349,6 +405,7 @@ export const DataService = {
     if (isFirebaseConfigured()) {
       const ref = doc(db, 'users', targetUserId);
       await setDoc(ref, { views: increment(1) }, { merge: true });
+      DataService.awardXP(targetUserId, 2); // Small XP for being visited
     } else {
       const users = LocalDb.getUsers();
       const u = users.find(u => u.id === targetUserId);
@@ -360,6 +417,7 @@ export const DataService = {
     if (isFirebaseConfigured()) {
       const ref = doc(db, 'users', targetUserId);
       await setDoc(ref, { hearts: increment(1) }, { merge: true });
+      DataService.awardXP(targetUserId, 10); // Big XP for heart
     } else {
       const users = LocalDb.getUsers();
       const u = users.find(u => u.id === targetUserId);
@@ -375,14 +433,38 @@ export const DataService = {
         const parts = chatId.split('_');
         const receiverId = parts[0] === message.senderId ? parts[1] : parts[0];
 
-        // 1. Update Chat Meta (Last Update & Increment Unread for Receiver)
+        // 1. AWARD XP
+        DataService.awardXP(message.senderId, 5);
+
+        // 2. HANDLE STREAK LOGIC
+        const relId = [message.senderId, receiverId].sort().join('_');
+        const relRef = doc(db, 'relationships', relId);
+        const relSnap = await getDoc(relRef);
+        
+        if (relSnap.exists()) {
+           const data = relSnap.data();
+           const lastInteraction = data.lastInteraction || 0;
+           let streak = data.streak || 0;
+           const now = Date.now();
+
+           // Check if consecutive day
+           if (isConsecutiveDay(lastInteraction, now)) {
+              streak += 1;
+           } else if (!isSameDay(lastInteraction, now)) {
+              streak = 1; // Reset if broken (but ignore if same day)
+           }
+           
+           await updateDoc(relRef, { streak: streak, lastInteraction: now });
+        }
+
+        // 3. Update Chat Meta (Last Update & Increment Unread for Receiver)
         const chatRef = doc(db, 'chats', chatId);
         await setDoc(chatRef, { 
           lastUpdated: Date.now(),
           [`unread_${receiverId}`]: increment(1) // Atomic increment
         }, { merge: true });
 
-        // 2. Add Message
+        // 4. Add Message
         await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
       } catch (e) {
         console.error("Error sending message:", e);
@@ -398,8 +480,16 @@ export const DataService = {
       await setDoc(doc(db, 'relationships', relId), {
         status: status,
         users: [myId, targetUserId],
-        initiatedBy: status === FriendStatus.PENDING ? myId : null
+        initiatedBy: status === FriendStatus.PENDING ? myId : null,
+        streak: 0,
+        lastInteraction: Date.now()
       }, { merge: true });
+      
+      // Award XP for making friends
+      if (status === FriendStatus.FRIEND) {
+         DataService.awardXP(myId, 50);
+         DataService.awardXP(targetUserId, 50);
+      }
     } else {
       LocalDb.updateFriendStatus(myId, targetUserId, status);
     }
@@ -417,11 +507,25 @@ export const DataService = {
   markAsRead: async (chatId: string, userId: string) => {
     if (isFirebaseConfigured()) {
        try {
-         // Reset unread count for this user to 0
          await setDoc(doc(db, 'chats', chatId), { 
            [`lastRead_${userId}`]: Date.now(),
            [`unread_${userId}`]: 0 
          }, { merge: true });
+
+         const parts = chatId.split('_');
+         const otherUserId = parts[0] === userId ? parts[1] : parts[0];
+
+         const messagesRef = collection(db, 'chats', chatId, 'messages');
+         const q = query(messagesRef, where('senderId', '==', otherUserId), where('isRead', '==', false));
+         const snapshot = await getDocs(q);
+         
+         if (!snapshot.empty) {
+           const batch = writeBatch(db);
+           snapshot.docs.forEach(docSnap => {
+             batch.update(docSnap.ref, { isRead: true });
+           });
+           await batch.commit();
+         }
        } catch (e) {
          console.error("Error marking read:", e);
        }
@@ -431,7 +535,6 @@ export const DataService = {
   },
   
   getUnreadCountSync: (chatId: string, userId: string): number => {
-    // For local DB only. Firebase uses subscription.
     if (isFirebaseConfigured()) return 0;
     return LocalDb.getUnreadCount(chatId, userId);
   }

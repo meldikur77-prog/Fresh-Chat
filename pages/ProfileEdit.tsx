@@ -1,7 +1,8 @@
+
 import React, { useState, useRef } from 'react';
-import { ChevronLeft, Camera, LogOut, X, Plus, Trash2, ImageIcon, AlertTriangle, FileText, Lock, HelpCircle, RefreshCw } from 'lucide-react';
+import { ChevronLeft, Camera, LogOut, X, Plus, Trash2, ImageIcon, AlertTriangle, FileText, Lock, HelpCircle, RefreshCw, Trophy, Heart, Star } from 'lucide-react';
 import { User } from '../types';
-import { compressImage } from '../utils';
+import { compressImage, calculateLevelProgress } from '../utils';
 import { DataService } from '../services/database';
 
 interface ProfileEditProps {
@@ -17,6 +18,8 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
   const [loadingImage, setLoadingImage] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const levelProgress = calculateLevelProgress(profile.xp || 0);
 
   const addInterest = () => {
     if (newInterest.trim() && !profile.interests.includes(newInterest.trim())) {
@@ -100,6 +103,55 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({ user, onSave, onCancel
        </div>
 
        <div className="p-6 space-y-6 overflow-y-auto pb-20">
+         {/* GAMIFICATION DASHBOARD (MY LEVEL) */}
+         <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[32px] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+             
+             <div className="flex justify-between items-start mb-4">
+               <div>
+                  <h2 className="text-2xl font-extrabold flex items-center gap-2">
+                     Level {profile.level || 1}
+                     <Trophy size={20} className="text-yellow-300 fill-yellow-300" />
+                  </h2>
+                  <p className="text-indigo-100 text-xs font-medium">My Freshness Score</p>
+               </div>
+               <div className="text-right">
+                  <div className="text-2xl font-bold">{profile.xp || 0}</div>
+                  <div className="text-[10px] uppercase tracking-wider opacity-70">Total XP</div>
+               </div>
+             </div>
+
+             {/* Progress Bar */}
+             <div className="w-full h-3 bg-black/20 rounded-full mb-4 overflow-hidden">
+               <div 
+                 className="h-full bg-gradient-to-r from-yellow-300 to-amber-500 rounded-full transition-all duration-1000" 
+                 style={{ width: `${levelProgress}%` }}
+               ></div>
+             </div>
+
+             {/* Badges */}
+             <div className="flex gap-2 flex-wrap">
+                {profile.badges?.includes('popular') && (
+                  <span className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-sm border border-white/10">
+                    <Heart size={10} className="fill-rose-400 text-rose-400" /> Popular
+                  </span>
+                )}
+                {profile.badges?.includes('veteran') && (
+                  <span className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-sm border border-white/10">
+                    <Star size={10} className="fill-yellow-300 text-yellow-300" /> Veteran
+                  </span>
+                )}
+                 {profile.badges?.includes('superstar') && (
+                  <span className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-sm border border-white/10">
+                    <Trophy size={10} className="fill-yellow-300 text-yellow-300" /> Superstar
+                  </span>
+                )}
+                {(!profile.badges || profile.badges.length === 0) && (
+                   <span className="text-[10px] opacity-60 italic">Chat more to unlock badges!</span>
+                )}
+             </div>
+          </div>
+
          {/* Avatar */}
          <div className="flex flex-col items-center">
             <div className="relative">

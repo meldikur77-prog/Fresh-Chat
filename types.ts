@@ -34,6 +34,12 @@ export interface User {
   views?: number;
   lastActive?: number; // Timestamp
   
+  // Gamification
+  xp?: number;
+  level?: number;
+  badges?: string[]; // e.g. 'popular', 'verified', 'veteran', 'friendly'
+  streak?: number;   // Calculated from relationship
+
   // Safety
   blockedUsers?: string[];
 }
@@ -41,14 +47,18 @@ export interface User {
 export interface FriendshipData {
   status: FriendStatus;
   initiatedBy?: string;
+  streak?: number;
+  lastInteraction?: number;
 }
 
 export interface Message {
   id: string;
   senderId: string; // 'me' or user.id
   text: string;
-  type?: 'text' | 'location';
+  type?: 'text' | 'location' | 'image';
   location?: Coordinates;
+  imageUrl?: string;
+  isRead?: boolean;
   timestamp: number;
 }
 

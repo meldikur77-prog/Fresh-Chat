@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Check, Heart, WifiOff, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Check, Heart, WifiOff, AlertTriangle, Trophy } from 'lucide-react';
 import { AppScreen, User, Message, Coordinates, FriendStatus, FriendshipData } from './types';
 import { calculateDistance } from './utils';
 import { InterstitialAd } from './components/InterstitialAd';
@@ -75,6 +75,9 @@ export default function App() {
     authMethod: 'guest',
     hearts: 0,
     views: 0,
+    xp: 0,
+    level: 1,
+    badges: [],
     lastActive: Date.now(),
     blockedUsers: []
   });
@@ -82,7 +85,6 @@ export default function App() {
   const [rawUsers, setRawUsers] = useState<User[]>([]);
   const [friendships, setFriendships] = useState<Record<string, FriendshipData>>({});
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-  const [nearbyUsers, setNearbyUsers] = useState<User[]>([]);
   
   const [chatUser, setChatUser] = useState<User | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -90,8 +92,12 @@ export default function App() {
   
   const [isPremium, setIsPremium] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'All' | 'Male' | 'Female'>('All');
-  const [listTab, setListTab] = useState<'NEARBY' | 'FRIENDS'>('NEARBY');
+  
+  // UPDATED: Added 'CHATS' to the allowed tab types
+  const [listTab, setListTab] = useState<'NEARBY' | 'FRIENDS' | 'CHATS'>('NEARBY');
+  
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [levelUpMessage, setLevelUpMessage] = useState<string | null>(null);
 
   const [actionCount, setActionCount] = useState(0);
   const [showInterstitial, setShowInterstitial] = useState(false);
@@ -102,6 +108,7 @@ export default function App() {
   const friendsUnsubscribe = useRef<(() => void) | null>(null);
   const chatUnsubscribe = useRef<(() => void) | null>(null);
   const unreadUnsubscribe = useRef<(() => void) | null>(null);
+  const prevLevelRef = useRef(1);
 
   // --- EFFECTS ---
 
@@ -126,6 +133,17 @@ export default function App() {
     }
   }, []);
 
+  // LEVEL UP LISTENER
+  useEffect(() => {
+    if (myProfile.level && myProfile.level > prevLevelRef.current) {
+       setLevelUpMessage(`LEVEL UP! You reached Level ${myProfile.level}`);
+       setTimeout(() => setLevelUpMessage(null), 4000);
+    }
+    if (myProfile.level) {
+       prevLevelRef.current = myProfile.level;
+    }
+  }, [myProfile.level]);
+
   useEffect(() => {
     if (!myProfile.id) return;
 
@@ -137,7 +155,7 @@ export default function App() {
       if (meOnServer) {
         setMyProfile(prev => ({...prev, ...meOnServer, blockedUsers: meOnServer.blockedUsers || []}));
       }
-      // FILTER LOGIC: Filter out users inactive for more than 7 days to clean up "Zombie" guest accounts
+      // FILTER LOGIC: Filter out users inactive for more than 7 days
       const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
       const activeUsers = users.filter(u => (u.lastActive || 0) > sevenDaysAgo);
       setRawUsers(activeUsers);
@@ -160,9 +178,9 @@ export default function App() {
     };
   }, [myProfile.id]);
 
-  // Merge Data
-  useEffect(() => {
-    if (!myProfile.id) return;
+  // OPTIMIZED: Derive nearbyUsers with useMemo to prevent double renders
+  const nearbyUsers = useMemo(() => {
+    if (!myProfile.id) return [];
 
     const currentId = myProfile.id;
     const blockedList = myProfile.blockedUsers || [];
@@ -170,9 +188,8 @@ export default function App() {
     const others = rawUsers.filter(u => u.id !== currentId && !blockedList.includes(u.id));
     const now = Date.now();
 
-    const processedUsers = others.map(u => {
+    return others.map(u => {
       const relationship = friendships[u.id] || { status: FriendStatus.NONE };
-      // Use the subscribed unread counts for Firebase, or sync getter for LocalDB fallback
       const unread = isFirebaseConfigured() 
          ? (unreadCounts[u.id] || 0) 
          : DataService.getUnreadCountSync(DataService.getChatId(currentId, u.id), currentId);
@@ -182,9 +199,13 @@ export default function App() {
         hearts: u.hearts ?? 0,
         views: u.views ?? 0,
         lastActive: u.lastActive ?? 0,
+        xp: u.xp ?? 0,
+        level: u.level ?? 1,
+        badges: u.badges ?? [],
         distance: calculateDistance(myProfile.location, u.location),
         friendStatus: relationship.status,
         friendRequestInitiator: relationship.initiatedBy,
+        streak: relationship.streak || 0, // MERGE STREAK DATA
         unreadCount: unread
       };
     }).sort((a, b) => {
@@ -194,8 +215,6 @@ export default function App() {
       if (!aActive && bActive) return 1;
       return (a.distance || 0) - (b.distance || 0);
     });
-
-    setNearbyUsers(processedUsers);
   }, [rawUsers, friendships, unreadCounts, myProfile.id, myProfile.location, myProfile.blockedUsers]);
 
   useEffect(() => {
@@ -238,11 +257,13 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: User) => {
-    // Preserve existing stats if they exist on the server user object
     const newUser: User = { 
       ...user, 
       hearts: user.hearts ?? 0, 
       views: user.views ?? 0, 
+      xp: user.xp ?? 0,
+      level: user.level ?? 1,
+      badges: user.badges ?? [],
       lastActive: Date.now(),
       blockedUsers: user.blockedUsers ?? []
     };
@@ -270,7 +291,8 @@ export default function App() {
     const updatedUser = { 
       ...user, 
       friendStatus: relationship.status,
-      friendRequestInitiator: relationship.initiatedBy
+      friendRequestInitiator: relationship.initiatedBy,
+      streak: relationship.streak || 0
     };
     setSelectedUser(updatedUser);
     setCurrentScreen(AppScreen.USER_DETAIL);
@@ -318,17 +340,23 @@ export default function App() {
     }
   };
 
-  const sendMessage = (type: 'text' | 'location' = 'text', content?: string | Coordinates) => {
+  const sendMessage = (type: 'text' | 'location' | 'image' = 'text', content?: string | Coordinates) => {
     if (!chatUser || !myProfile.id) return;
     trackAction();
+
+    let textPreview = 'Sent an image';
+    if (type === 'text') textPreview = content as string || '';
+    if (type === 'location') textPreview = 'Shared location';
 
     const newMessage: Message = {
       id: Date.now().toString(),
       senderId: myProfile.id,
-      text: type === 'text' ? (content as string || '') : 'Shared location',
+      text: textPreview,
       type: type,
       location: type === 'location' ? (content as Coordinates) : undefined,
-      timestamp: Date.now()
+      imageUrl: type === 'image' ? (content as string) : undefined,
+      timestamp: Date.now(),
+      isRead: false
     };
     const chatId = DataService.getChatId(myProfile.id, chatUser.id);
     DataService.sendMessage(chatId, newMessage);
@@ -367,7 +395,8 @@ export default function App() {
       id: '', name: '', gender: 'Male', age: 25, bio: '',
       photoUrl: 'https://picsum.photos/seed/setup/200/200',
       interests: [], album: [], location: { latitude: 0, longitude: 0 },
-      friendStatus: FriendStatus.NONE, authMethod: 'guest', blockedUsers: []
+      friendStatus: FriendStatus.NONE, authMethod: 'guest', blockedUsers: [],
+      xp: 0, level: 1, badges: []
     });
     setChatUser(null);
     setCurrentScreen(AppScreen.PROFILE_SETUP);
@@ -383,6 +412,17 @@ export default function App() {
            <WifiOff size={12} /> You are currently offline. Reconnecting...
         </div>
       )}
+      
+      {/* LEVEL UP NOTIFICATION */}
+      {levelUpMessage && (
+        <div className="fixed top-12 left-0 right-0 z-[100] flex justify-center pointer-events-none animate-in fade-in slide-in-from-top-4">
+           <div className="bg-yellow-400 text-yellow-900 px-6 py-3 rounded-full font-extrabold shadow-xl border-2 border-white flex items-center gap-3 animate-bounce">
+              <Trophy size={24} className="fill-yellow-100 text-yellow-800" />
+              {levelUpMessage}
+           </div>
+        </div>
+      )}
+
       {showInterstitial && (
         <InterstitialAd onClose={() => setShowInterstitial(false)} adUnitId={AdMobConfig.INTERSTITIAL_ID} />
       )}

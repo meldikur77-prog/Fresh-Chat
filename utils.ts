@@ -89,3 +89,36 @@ export const compressImage = (file: File): Promise<string> => {
     reader.onerror = (err) => reject(err);
   });
 };
+
+/**
+ * Calculates Level based on XP.
+ * Formula: Level = floor(XP / 100) + 1
+ */
+export const calculateLevel = (xp: number = 0): number => {
+  return Math.floor(xp / 100) + 1;
+};
+
+/**
+ * Returns the progress (0-100) towards the next level.
+ */
+export const calculateLevelProgress = (xp: number = 0): number => {
+  return xp % 100;
+};
+
+/**
+ * Check if two timestamps are on consecutive days (for streaks)
+ */
+export const isConsecutiveDay = (lastTime: number, currentTime: number): boolean => {
+  const oneDay = 24 * 60 * 60 * 1000;
+  const lastDate = new Date(lastTime).setHours(0,0,0,0);
+  const currentDate = new Date(currentTime).setHours(0,0,0,0);
+  
+  const diff = currentDate - lastDate;
+  return diff === oneDay; // Exactly 1 day difference
+};
+
+export const isSameDay = (lastTime: number, currentTime: number): boolean => {
+  const lastDate = new Date(lastTime).setHours(0,0,0,0);
+  const currentDate = new Date(currentTime).setHours(0,0,0,0);
+  return lastDate === currentDate;
+};
