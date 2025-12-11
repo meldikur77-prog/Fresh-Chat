@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.meldikur77.freshchat",
+    "sha256_cert_fingerprints": ["REPLACE_THIS_WITH_YOUR_SHA256_FROM_ANDROID_STUDIO"]
+  }
+}]

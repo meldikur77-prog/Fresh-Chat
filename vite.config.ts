@@ -15,7 +15,7 @@ export default defineConfig({
         description: "A location-based messenger app connecting you with people nearby using GPS.",
         theme_color: "#10b981",
         background_color: "#f0fdf4",
-        display: "standalone",
+        display: "fullscreen",
         start_url: "/",
         orientation: "portrait",
         icons: [

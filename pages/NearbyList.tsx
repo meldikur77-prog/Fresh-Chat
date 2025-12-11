@@ -11,7 +11,6 @@ interface NearbyListProps {
   isPremium: boolean;
   genderFilter: 'All' | 'Male' | 'Female';
   setGenderFilter: (v: 'All' | 'Male' | 'Female') => void;
-  // UPDATED: Added 'CHATS' to the allowed tab types
   listTab: 'NEARBY' | 'FRIENDS' | 'CHATS';
   setListTab: (v: 'NEARBY' | 'FRIENDS' | 'CHATS') => void;
   togglePremium: () => void;
@@ -24,6 +23,7 @@ interface NearbyListProps {
 }
 
 const ACTIVE_THRESHOLD = 15 * 60 * 1000; // 15 Minutes
+const AWAY_THRESHOLD = 60 * 60 * 1000; // 1 Hour
 
 const SkeletonUser = () => (
   <div className="bg-white p-4 rounded-[24px] shadow-sm border border-slate-50 flex items-center gap-4 animate-pulse">
@@ -41,11 +41,11 @@ const SkeletonUser = () => (
 
 // OPTIMIZATION: Memoized User Card to prevent re-rendering entire list when one user updates
 const UserCard = React.memo(({ 
-  user, myProfile, isOnline, openUserProfile, openChat, handleAddFriend, handleConfirmFriend 
+  user, myProfile, timeStatus, openUserProfile, openChat, handleAddFriend, handleConfirmFriend 
 }: { 
   user: User; 
   myProfile: User;
-  isOnline: boolean;
+  timeStatus: 'ONLINE' | 'AWAY' | 'OFFLINE';
   openUserProfile: (u: User) => void;
   openChat: (u: User) => void;
   handleAddFriend: (u: User) => void;
@@ -62,8 +62,13 @@ const UserCard = React.memo(({
            loading="lazy" 
            decoding="async"
          />
-         {isOnline && (
+         {timeStatus === 'ONLINE' && (
            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-400 rounded-full border-[3px] border-white z-10 animate-pulse-glow flex items-center justify-center">
+             <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+           </div>
+         )}
+         {timeStatus === 'AWAY' && (
+           <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-amber-400 rounded-full border-[3px] border-white z-10 flex items-center justify-center">
              <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
            </div>
          )}
@@ -80,6 +85,7 @@ const UserCard = React.memo(({
             {user.name} 
             {user.authMethod === 'google' && <Shield size={14} className="fill-blue-500 text-white" />}
             {user.authMethod === 'apple' && <Shield size={14} className="fill-black text-white" />}
+            {user.isPremium && <Crown size={14} className="fill-amber-500 text-amber-600" />}
           </h3>
           <div className="flex items-center gap-1.5">
             
@@ -101,7 +107,13 @@ const UserCard = React.memo(({
           </div>
         </div>
         
-        <p className="text-xs text-slate-500 truncate mb-3 font-medium opacity-80">{user.bio || 'New to Fresh Chat'}</p>
+        {timeStatus === 'ONLINE' ? (
+          <p className="text-xs text-emerald-600 truncate mb-3 font-bold opacity-90">Online Now</p>
+        ) : timeStatus === 'AWAY' ? (
+          <p className="text-xs text-amber-500 truncate mb-3 font-bold opacity-90">Away {user.lastActive ? Math.floor((Date.now() - user.lastActive) / 60000) : 0}m ago</p>
+        ) : (
+          <p className="text-xs text-slate-400 truncate mb-3 font-medium opacity-80">{user.bio || 'New to Fresh Chat'}</p>
+        )}
         
         <div className="flex justify-between items-center">
           <div className="flex gap-1 overflow-hidden h-6 mask-gradient-r">
@@ -145,7 +157,6 @@ const UserCard = React.memo(({
     </div>
   );
 }, (prev, next) => {
-  // Memoization comparison function: Only re-render if data actually changed
   return (
     prev.user.id === next.user.id &&
     prev.user.friendStatus === next.user.friendStatus &&
@@ -153,7 +164,7 @@ const UserCard = React.memo(({
     prev.user.lastActive === next.user.lastActive &&
     prev.user.level === next.user.level &&
     prev.user.streak === next.user.streak &&
-    prev.isOnline === next.isOnline
+    prev.timeStatus === next.timeStatus
   );
 });
 
@@ -164,29 +175,27 @@ export const NearbyList: React.FC<NearbyListProps> = ({
 }) => {
   const [showFilterModal, setShowFilterModal] = useState(false);
 
-  const isOnline = (timestamp?: number) => {
-    if (!timestamp) return false;
-    return (Date.now() - timestamp) < ACTIVE_THRESHOLD;
+  const getTimeStatus = (timestamp?: number): 'ONLINE' | 'AWAY' | 'OFFLINE' => {
+    if (!timestamp) return 'OFFLINE';
+    const diff = Date.now() - timestamp;
+    if (diff < ACTIVE_THRESHOLD) return 'ONLINE';
+    if (diff < AWAY_THRESHOLD) return 'AWAY';
+    return 'OFFLINE';
   };
 
   let filtered = nearbyUsers;
   
-  // 1. FILTER BY GENDER
   if (genderFilter !== 'All') {
     filtered = filtered.filter(u => u.gender === genderFilter);
   }
   
-  // 2. FILTER BY TAB
   if (listTab === 'FRIENDS') {
     filtered = filtered.filter(u => u.friendStatus === FriendStatus.FRIEND);
   } else if (listTab === 'CHATS') {
-    // "LIVE" TAB LOGIC:
-    // 1. Must be Online (Hide if offline)
-    // 2. Must be active chatting (Friend OR has Unread messages)
+    // LIVE Tab: Active in last 24h AND (Friend OR has Unread)
     filtered = filtered.filter(u => {
-      const online = isOnline(u.lastActive);
-      if (!online) return false; // Strictly hide offline users in this tab
-      
+      const active24h = (Date.now() - (u.lastActive || 0)) < (24 * 60 * 60 * 1000);
+      if (!active24h) return false;
       const isChatting = u.friendStatus === FriendStatus.FRIEND || (u.unreadCount || 0) > 0;
       return isChatting;
     });
@@ -222,7 +231,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
             </button>
             <button 
               onClick={togglePremium} 
-              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-95 ${isPremium ? 'bg-amber-100 text-amber-500' : 'hover:bg-slate-100 text-slate-400'}`}
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-95 ${isPremium ? 'bg-amber-100 text-amber-500 shadow-md shadow-amber-100' : 'hover:bg-slate-100 text-slate-400'}`}
             >
               <Crown size={20} className={isPremium ? 'fill-amber-500' : ''} />
             </button>
@@ -290,7 +299,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
                      <Activity size={32} className="text-rose-300" />
                   </div>
                   <p className="font-bold text-lg text-slate-400">No Live Chats</p>
-                  <p className="text-sm text-center max-w-[200px] mt-2">Only friends who are currently Online will appear here.</p>
+                  <p className="text-sm text-center max-w-[200px] mt-2">Only friends who are currently Online or active in the last 24h will appear here.</p>
                 </>
              ) : (
                 <>
@@ -306,7 +315,7 @@ export const NearbyList: React.FC<NearbyListProps> = ({
               key={user.id} 
               user={user} 
               myProfile={myProfile} 
-              isOnline={isOnline(user.lastActive)}
+              timeStatus={getTimeStatus(user.lastActive)}
               openUserProfile={openUserProfile}
               openChat={openChat}
               handleAddFriend={handleAddFriend}

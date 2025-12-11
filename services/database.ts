@@ -37,6 +37,8 @@ export const DataService = {
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
+        // NOTE: You need to generate a VAPID key in Firebase Console -> Cloud Messaging
+        // and replace the string below for Web Push to work.
         const token = await getToken(messaging, { 
           vapidKey: 'YOUR_VAPID_KEY_FROM_FIREBASE_CONSOLE' 
         });
@@ -218,7 +220,7 @@ export const DataService = {
           const rels: Record<string, FriendshipData> = {};
           snapshot.docs.forEach(doc => {
              const data = doc.data();
-             const otherId = data.users.find((uid: string) => uid !== currentUserId);
+             const otherId = data.users?.find((uid: string) => uid !== currentUserId);
              if (otherId) {
                 rels[otherId] = {
                   status: data.status as FriendStatus,
@@ -258,17 +260,23 @@ export const DataService = {
 
   subscribeToUnreadCounts: (myId: string, callback: (counts: Record<string, number>) => void) => {
     if (isFirebaseConfigured()) {
+      // Note: This listens to ALL chats collection. For production scale, you would want a more targeted query
+      // or a separate subcollection for user notifications.
       const q = query(collection(db, 'chats'));
       return onSnapshot(q, (snapshot) => {
         const counts: Record<string, number> = {};
         snapshot.docs.forEach(doc => {
           const data = doc.data();
+          // Check if this chat doc relates to me
           if (doc.id.includes(myId)) {
             const parts = doc.id.split('_');
-            const otherId = parts[0] === myId ? parts[1] : parts[0];
-            const count = data[`unread_${myId}`] || 0;
-            if (count > 0) {
-              counts[otherId] = count;
+            // If my ID is part of the key
+            if (parts.includes(myId)) {
+                const otherId = parts[0] === myId ? parts[1] : parts[0];
+                const count = data[`unread_${myId}`] || 0;
+                if (count > 0) {
+                counts[otherId] = count;
+                }
             }
           }
         });
@@ -280,9 +288,11 @@ export const DataService = {
   },
 
   upsertUser: async (user: User) => {
+    // SANITIZATION: Remove undefined fields that crash Firestore
     const cleanUser = JSON.parse(JSON.stringify(user));
 
     if (isFirebaseConfigured()) {
+      // Default Values if missing
       if (cleanUser.hearts === undefined) cleanUser.hearts = 0;
       if (cleanUser.views === undefined) cleanUser.views = 0;
       if (cleanUser.xp === undefined) cleanUser.xp = 0;
@@ -314,7 +324,7 @@ export const DataService = {
           let badges = data.badges || [];
           const hearts = data.hearts || 0;
 
-          // Check for Badges
+          // Unlock Badges
           if (!badges.includes('popular') && hearts >= 10) badges.push('popular');
           if (!badges.includes('superstar') && hearts >= 50) badges.push('superstar');
           if (!badges.includes('veteran') && newLevel >= 5) badges.push('veteran');
@@ -362,6 +372,7 @@ export const DataService = {
   setTypingStatus: async (chatId: string, userId: string, isTyping: boolean) => {
      if (isFirebaseConfigured()) {
        const ref = doc(db, 'chats', chatId);
+       // Use setDoc with merge to prevent crashes if doc doesn't exist
        await setDoc(ref, { [`typing.${userId}`]: isTyping }, { merge: true });
      } else {
        LocalDb.setTypingStatus(chatId, userId, isTyping);
@@ -401,6 +412,20 @@ export const DataService = {
     }
   },
 
+  markUserOffline: async (userId: string) => {
+    if (!userId) return;
+    const offlineTime = Date.now() - (60 * 60 * 1000); // 1 hour ago
+    if (isFirebaseConfigured()) {
+       try {
+         await setDoc(doc(db, 'users', userId), { lastActive: offlineTime }, { merge: true });
+       } catch (e) { console.warn("Failed to mark user offline", e); }
+    } else {
+       const users = LocalDb.getUsers();
+       const u = users.find(u => u.id === userId);
+       if (u) { u.lastActive = offlineTime; LocalDb.upsertUser(u); }
+    }
+  },
+
   trackProfileVisit: async (targetUserId: string) => {
     if (isFirebaseConfigured()) {
       const ref = doc(db, 'users', targetUserId);
@@ -426,6 +451,7 @@ export const DataService = {
   },
 
   sendMessage: async (chatId: string, message: Message) => {
+    // SANITIZATION
     const payload = JSON.parse(JSON.stringify(message));
     
     if (isFirebaseConfigured()) {
@@ -447,7 +473,6 @@ export const DataService = {
            let streak = data.streak || 0;
            const now = Date.now();
 
-           // Check if consecutive day
            if (isConsecutiveDay(lastInteraction, now)) {
               streak += 1;
            } else if (!isSameDay(lastInteraction, now)) {
@@ -457,11 +482,11 @@ export const DataService = {
            await updateDoc(relRef, { streak: streak, lastInteraction: now });
         }
 
-        // 3. Update Chat Meta (Last Update & Increment Unread for Receiver)
+        // 3. Update Chat Meta
         const chatRef = doc(db, 'chats', chatId);
         await setDoc(chatRef, { 
           lastUpdated: Date.now(),
-          [`unread_${receiverId}`]: increment(1) // Atomic increment
+          [`unread_${receiverId}`]: increment(1) 
         }, { merge: true });
 
         // 4. Add Message
@@ -485,7 +510,6 @@ export const DataService = {
         lastInteraction: Date.now()
       }, { merge: true });
       
-      // Award XP for making friends
       if (status === FriendStatus.FRIEND) {
          DataService.awardXP(myId, 50);
          DataService.awardXP(targetUserId, 50);
@@ -512,6 +536,7 @@ export const DataService = {
            [`unread_${userId}`]: 0 
          }, { merge: true });
 
+         // OPTIMIZED QUERY: Use '==' to avoid Composite Index errors
          const parts = chatId.split('_');
          const otherUserId = parts[0] === userId ? parts[1] : parts[0];
 

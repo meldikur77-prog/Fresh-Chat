@@ -4,6 +4,7 @@ import { Check, Heart, WifiOff, AlertTriangle, Trophy } from 'lucide-react';
 import { AppScreen, User, Message, Coordinates, FriendStatus, FriendshipData } from './types';
 import { calculateDistance } from './utils';
 import { InterstitialAd } from './components/InterstitialAd';
+import { PremiumModal } from './components/PremiumModal';
 import { DataService } from './services/database';
 import { AdMobService } from './services/admobService';
 import { AdMobConfig } from './config/admob';
@@ -91,6 +92,7 @@ export default function App() {
   const [currentChatMessages, setCurrentChatMessages] = useState<Message[]>([]);
   
   const [isPremium, setIsPremium] = useState(false);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'All' | 'Male' | 'Female'>('All');
   
   // UPDATED: Added 'CHATS' to the allowed tab types
@@ -147,13 +149,13 @@ export default function App() {
   useEffect(() => {
     if (!myProfile.id) return;
 
-    DataService.requestNotificationPermission(myProfile.id);
-
     // 1. Users Listener
     usersUnsubscribe.current = DataService.subscribeToUsers(myProfile.id, (users) => {
       const meOnServer = users.find(u => u.id === myProfile.id);
       if (meOnServer) {
         setMyProfile(prev => ({...prev, ...meOnServer, blockedUsers: meOnServer.blockedUsers || []}));
+        // If user bought premium, it would be saved in DB
+        if (meOnServer.isPremium) setIsPremium(true);
       }
       // FILTER LOGIC: Filter out users inactive for more than 7 days
       const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
@@ -185,7 +187,21 @@ export default function App() {
     const currentId = myProfile.id;
     const blockedList = myProfile.blockedUsers || [];
     
-    const others = rawUsers.filter(u => u.id !== currentId && !blockedList.includes(u.id));
+    const others = rawUsers.filter(u => {
+      // 1. Basic ID Filter
+      if (u.id === currentId) return false;
+      // 2. Block Filter
+      if (blockedList.includes(u.id)) return false;
+      
+      // 3. Anti-Ghost Filter (Development Helper)
+      // If a user has my EXACT name and is at my EXACT location (distance ~0), 
+      // it is likely a stale guest session of myself. Hide it.
+      const dist = calculateDistance(myProfile.location, u.location);
+      if (u.name === myProfile.name && dist < 0.01) return false;
+      
+      return true;
+    });
+    
     const now = Date.now();
 
     return others.map(u => {
@@ -257,6 +273,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: User) => {
+    DataService.requestNotificationPermission(user.id);
     const newUser: User = { 
       ...user, 
       hearts: user.hearts ?? 0, 
@@ -270,14 +287,18 @@ export default function App() {
     DataService.upsertUser(newUser);
     sessionStorage.setItem('fresh_chat_my_id', newUser.id);
     setMyProfile(newUser);
+    if (newUser.isPremium) setIsPremium(true);
     setCurrentScreen(AppScreen.NEARBY_LIST);
   };
 
   const openChat = (user: User) => {
     trackAction();
     const relationship = friendships[user.id] || { status: FriendStatus.NONE };
+    // Get latest active status from map
+    const liveUser = nearbyUsers.find(u => u.id === user.id) || user;
+    
     const updatedUser = { 
-      ...user, 
+      ...liveUser,
       friendStatus: relationship.status,
       friendRequestInitiator: relationship.initiatedBy
     };
@@ -288,8 +309,10 @@ export default function App() {
   const openUserProfile = (user: User) => {
     trackAction();
     const relationship = friendships[user.id] || { status: FriendStatus.NONE };
+    const liveUser = nearbyUsers.find(u => u.id === user.id) || user;
+
     const updatedUser = { 
-      ...user, 
+      ...liveUser, 
       friendStatus: relationship.status,
       friendRequestInitiator: relationship.initiatedBy,
       streak: relationship.streak || 0
@@ -376,10 +399,14 @@ export default function App() {
     }
   };
 
-  const togglePremium = () => {
-    setIsPremium(!isPremium);
-    if (!isPremium) AdMobService.hideBanner();
-    else AdMobService.showBanner();
+  const handlePremiumUpgrade = () => {
+    setIsPremium(true);
+    AdMobService.hideBanner();
+    const updated = { ...myProfile, isPremium: true };
+    setMyProfile(updated);
+    DataService.upsertUser(updated);
+    setToastMessage("Welcome to Premium!");
+    setShowPremiumModal(false);
   };
 
   const saveProfileChanges = (updatedUser: User) => {
@@ -390,6 +417,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    DataService.markUserOffline(myProfile.id);
     sessionStorage.removeItem('fresh_chat_my_id');
     setMyProfile({ 
       id: '', name: '', gender: 'Male', age: 25, bio: '',
@@ -399,11 +427,17 @@ export default function App() {
       xp: 0, level: 1, badges: []
     });
     setChatUser(null);
+    setIsPremium(false);
     setCurrentScreen(AppScreen.PROFILE_SETUP);
   };
 
-  const activeSelectedUser = selectedUser ? nearbyUsers.find(u => u.id === selectedUser.id) || selectedUser : null;
-  const activeChatUser = chatUser ? nearbyUsers.find(u => u.id === chatUser.id) || chatUser : null;
+  const activeSelectedUser = selectedUser ? (nearbyUsers.find(u => u.id === selectedUser.id) || selectedUser) : null;
+  // Fallback to chatUser if not found in nearby (e.g. filtered out) but fetch latest friends status
+  const activeChatUser = chatUser ? (nearbyUsers.find(u => u.id === chatUser.id) || {
+      ...chatUser,
+      friendStatus: friendships[chatUser.id]?.status || chatUser.friendStatus,
+      friendRequestInitiator: friendships[chatUser.id]?.initiatedBy
+  }) : null;
 
   return (
     <>
@@ -421,6 +455,10 @@ export default function App() {
               {levelUpMessage}
            </div>
         </div>
+      )}
+
+      {showPremiumModal && (
+        <PremiumModal onClose={() => setShowPremiumModal(false)} onUpgrade={handlePremiumUpgrade} isPremium={isPremium} />
       )}
 
       {showInterstitial && (
@@ -446,7 +484,7 @@ export default function App() {
           setGenderFilter={setGenderFilter}
           listTab={listTab}
           setListTab={setListTab}
-          togglePremium={togglePremium}
+          togglePremium={() => setShowPremiumModal(true)}
           setCurrentScreen={setCurrentScreen}
           openUserProfile={openUserProfile}
           openChat={openChat}
