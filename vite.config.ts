@@ -10,13 +10,15 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
+        id: "/",
         name: "Fresh Chat",
         short_name: "FreshChat",
         description: "A location-based messenger app connecting you with people nearby using GPS.",
         theme_color: "#10b981",
         background_color: "#f0fdf4",
-        display: "fullscreen",
+        display: "standalone",
         start_url: "/",
+        scope: "/",
         orientation: "portrait",
         icons: [
           {
@@ -38,6 +40,9 @@ export default defineConfig({
             purpose: "maskable"
           }
         ]
+      },
+      devOptions: {
+        enabled: true
       }
     })
   ],

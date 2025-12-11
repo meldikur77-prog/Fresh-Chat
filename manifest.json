@@ -1,10 +1,11 @@
 {
+  "id": "/",
   "name": "Fresh Chat",
   "short_name": "FreshChat",
   "description": "A location-based messenger app connecting you with people nearby using GPS.",
   "start_url": "/",
   "scope": "/",
-  "display": "fullscreen",
+  "display": "standalone",
   "background_color": "#f0fdf4",
   "theme_color": "#10b981",
   "orientation": "portrait",
